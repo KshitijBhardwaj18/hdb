@@ -7,7 +7,7 @@ import '@repo/ui/globals.css';
 
 export const metadata: Metadata = {
   title: 'HydraDB',
-  description: 'HydraDB - Database Management Platform',
+  description: 'HydraDB - Deployment Management Platform',
   icons: {
     icon: '/favicon.ico',
   },
