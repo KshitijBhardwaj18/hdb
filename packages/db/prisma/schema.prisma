@@ -1,0 +1,114 @@
+generator client {
+  provider   = "prisma-client-js"
+  output     = "../generated/prisma"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model User {
+  id               String  @id @default(uuid()) @db.Uuid
+  email            String  @unique
+  name             String
+  avatarUrl        String?
+  rolePermissionId String  @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userAuth       UserAuth?
+  userProfile    UserProfile?
+  rolePermission RolePermission @relation(fields: [rolePermissionId], references: [id])
+  chats          Chat[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model RolePermission {
+  id          String   @id @default(uuid()) @db.Uuid
+  role        UserRole
+  permissions String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users User[]
+
+  @@map("role_permissions")
+}
+
+model UserAuth {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @unique @db.Uuid
+  isDeleted  Boolean  @default(false)
+  password   String
+  isVerified Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_auths")
+}
+
+model UserProfile {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
+  dob         DateTime?
+  gender      String?
+  phoneNumber String?
+  address     String?
+  city        String?
+  state       String?
+  country     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_profiles")
+}
+
+model Chat {
+  id       String  @id @default(uuid()) @db.Uuid
+  userId   String  @db.Uuid
+  title    String  @default("New Chat")
+  isPublic Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatMessages ChatMessage[]
+
+  @@index([userId])
+  @@index([updatedAt])
+  @@map("chats")
+}
+
+model ChatMessage {
+  id          String   @id @default(uuid()) @db.Uuid
+  chatId      String   @db.Uuid
+  role        String
+  parts       Json?
+  attachments Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([updatedAt])
+  @@map("chat_messages")
+}

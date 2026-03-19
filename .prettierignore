@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+.turbo
+.next
+.env
+packages/db/generated
+swagger-spec.json
+pnpm-lock.yaml

@@ -1,0 +1,19 @@
+services:
+  project-name-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: project-name-app
+    ports:
+      - '3000:3000'
+      - '3001:3001'
+    env_file:
+      - apps/web/.env
+      - apps/server/.env
+    restart: on-failure:5
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge

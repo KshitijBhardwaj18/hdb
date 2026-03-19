@@ -1,0 +1,254 @@
+---
+alwaysApply: true
+---
+
+# Project Cursor Rules
+
+## 🏗️ Tech Stack & Architecture
+
+- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS 4, internal UI kit (`@repo/ui`, shadcn-derived)
+- **State & Data**: NextAuth (JWT sessions) + TanStack Query (fetch/cache); SWR is allowed for selective cache invalidation
+- **HTTP Client**: Axios via a single `ApiClient` abstraction
+- **Validation**: Zod (frontend) + class-validator/class-transformer (backend DTOs)
+- **Backend**: NestJS 11 (modules/services/controllers), Prisma ORM, JWT auth (Passport strategy)
+- **Docs**: Swagger/OpenAPI (auto via `@nestjs/swagger` plugin)
+- **Email**: `@nestjs-modules/mailer` with HTML templates
+- **DB**: PostgreSQL via Prisma; shared enums/types in `@repo/db` and `@repo/shared-types`
+- **Tooling**: pnpm workspaces, Turbo, Prettier + Tailwind plugin, ESLint (flat configs)
+
+## 📋 General Coding Standards
+
+### Code Quality Requirements
+- ALWAYS write TypeScript
+- Follow ESLint and Prettier; fix all warnings where feasible
+- Follow Conventional Commits (commitlint config)
+- Defensive programming: null/undefined guards, explicit return types on public APIs
+- Keep functions small and single-purpose; prefer composition over inheritance
+- Centralize side-effects (API, storage, navigation) in services/hooks
+- Write meaningful logs and errors with context; never swallow errors silently
+
+### Prettier Style (authoritative)
+- `tabWidth: 2`, `useTabs: false`
+- `semi: true`, `singleQuote: true`, `jsxSingleQuote: true`
+- `printWidth: 120`, `trailingComma: 'es5'`, `bracketSpacing: true`
+- `arrowParens: 'always'`, `endOfLine: 'lf'`
+- Plugin: `prettier-plugin-tailwindcss` (sorts Tailwind classes)
+
+### ESLint
+- Frontend: `@repo/eslint-config/next-js` with React, React Hooks, Next core-web-vitals
+- Backend: Type-checked TS config; some strict `@typescript-eslint/*` rules relaxed in server for pragmatism
+- Prefer fixing warnings; if disabling a rule, scope it locally with rationale
+
+### Naming & Style Conventions
+- Variables, functions: `camelCase`
+- Classes, React components, types, interfaces, DTO classes: `PascalCase`
+- Constants: `UPPER_SNAKE_CASE`
+- Enums: `PascalCase` enum name with `UPPER_SNAKE_CASE` members (e.g., `RoleEnum.ADMIN`)
+- File names:
+  - React components: `PascalCase.tsx` (e.g., `AppSidebar.tsx`)
+  - Other TS/logic files: `kebab-case.ts` (e.g., `auth.service.ts`, `orders.module.ts`)
+  - DTOs: `kebab-case.dto.ts` (e.g., `login.dto.ts`)
+  - Tests: `*.spec.ts` or `*.spec.tsx`
+- Directory names: `kebab-case`
+- Barrel exports allowed for UI libs; avoid deep barrel chains in app code
+
+### Import Conventions
+- Group: node/std, third-party, workspace packages, absolute (`@/...`), relative
+- No circular deps; prefer passing dependencies explicitly
+- Use absolute `@/...` paths in `apps/web`; use relative inside Nest feature modules
+
+## 🎯 Frontend Standards (Next.js 15 + React)
+
+### Component Architecture
+- Functional components only; hooks for state/effects
+- Keep components presentational; push data-fetching to hooks/queries; push mutations to services
+- Co-locate small components; extract reusable parts to `apps/web/components`
+- Use `@repo/ui` primitives for consistent UI; extend with composition, not overrides
+
+### Data Fetching & Caching
+- Use TanStack Query provider (`ReactQueryClientProvider` in `app/layout.tsx`)
+- Queries: colocate in `apps/web/queries/*`, use descriptive `queryKey`s
+- Configure `refetchOnMount: 'always'` where freshness matters
+- Mutations: return server shape; invalidate or update relevant caches
+
+### Service Layer (authoritative pattern)
+- Never call HTTP in components. Use services under `apps/web/services/*`.
+- Each service exposes `static async` methods and delegates to `ApiClient`.
+
+```typescript
+// apps/web/services/auth.service.ts (pattern)
+export class AuthService {
+  static async login(credentials: LoginInput) {
+    return ApiClient.post<LoginResponse>('/api/auth/login', credentials);
+  }
+  static async me() {
+    return ApiClient.get<AuthContextType>('/api/auth/me');
+  }
+}
+```
+
+### HTTP Client (`ApiClient`)
+- Base URL from `envConfig.apiUrl`
+- Attaches `Authorization: Bearer <token>` via NextAuth session (server: `getServerSession`; client: `getSession`)
+- Automatically deep-trims `data` and `params`
+- Throws `Error(message)` with server-provided `message` if Axios error
+- Prefer `get/post/put/patch/delete` helpers
+
+```typescript
+// Minimal usage
+const user = await ApiClient.get<User>('/api/auth/me');
+```
+
+### Auth (NextAuth)
+- JWT session strategy; credentials provider only
+- Store JWT token on session; use it for API calls
+- Protect routes via `AuthWrapper` and `AuthContext`; redirect unauthenticated users to `/login`
+
+### Forms & Validation
+- Prefer `react-hook-form` + Zod; schemas in `@repo/shared-types/schemas` when shareable
+- Show inline validation messages; avoid alert()s; use `sonner` toasts for global errors
+
+### Styling & UX
+- Tailwind CSS 4; mobile-first responsive
+- Sort classes via Prettier plugin; prefer utility-first with small component APIs
+- Accessibility: semantic HTML, ARIA where needed, keyboard navigation support
+- Loading skeletons/spinners for all async states; empty/error UI states are mandatory
+
+## 🔧 Backend Standards (NestJS + Prisma)
+
+### Architecture
+- Strict module boundaries: `Module → Controller → Service`
+- Controllers thin; services hold business logic
+- All DB access through `PrismaService`
+- Expose only necessary providers via `exports`
+
+### Global App Configuration (authoritative)
+- CORS from env (`CORS_URLS`)
+- Global prefix: `api`
+- Global `ValidationPipe` with `{ whitelist: true, transform: true }` and custom `exceptionFactory`
+- Global `GlobalExceptionFilter` normalizes Prisma and HTTP errors
+- Swagger initialized at `/docs` with Bearer auth
+
+### DTOs & Validation
+- DTOs in `feature/dto/*.dto.ts`
+- Use `class-validator` with strong messages; transform inputs (lowercase/trim) via `class-transformer`
+- DTOs must be referenced in controller method params
+- Document DTO fields with `@ApiProperty`
+
+```typescript
+export class LoginDto {
+  @ApiProperty({ description: 'User email', example: 'user@example.com', format: 'email' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase().trim() : value))
+  @IsString()
+  @IsNotEmpty()
+  email: string;
+
+  @ApiProperty({ description: 'User password', example: 'password123', minLength: 6 })
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
+```
+
+### Authentication & Authorization
+- JWT strategy via Passport (`Authorization: Bearer <token>`)
+- Default-protected; use `@Public()` for public routes
+- Use `@UseGuards(JwtAuthGuard, PermissionsGuard)` for RBAC; set requirements with `@RequirePermissions({ role, view, permissions })`
+- Access current user via `@CurrentUser()`
+
+### Services & Transactions
+- Business logic in services only; avoid DB access in controllers
+- Use Prisma transactions for multi-step writes
+- Throw `HttpException` subclasses with clear messages
+
+### Error Handling & Logging
+- Always throw meaningful Nest exceptions: `BadRequestException`, `UnauthorizedException`, `ForbiddenException`, `NotFoundException`
+- Use `Logger` in complex services; include identifiers and input snippets
+- Prefer structured logs (consider `nestjs-pino`) for production
+
+## 🗄️ Database Standards (Prisma)
+- Keep schema normalized; use relations with proper `onDelete`/`onUpdate`
+- Add indexes for frequent query filters
+- Use `$transaction` for multi-entity writes
+- Avoid N+1 queries; prefer `include` or batch calls
+- Use enums from `@repo/db` where applicable; mirror values in `@repo/shared-types/enums` when needed on FE
+
+## 🔒 Security Standards
+- Validate all inputs (DTOs/backend, Zod/frontend)
+- `ValidationPipe` with `whitelist: true` to strip unknown fields
+- Secrets only from environment; never commit
+- JWT: strong secret, expiry from env; never log tokens
+- CORS restricted by env; avoid `*` in production
+- File uploads: validate MIME/size; strip metadata; use S3 creds from env
+- Rate limit sensitive endpoints (recommended to add if traffic warrants)
+
+## 📁 Project Structure (Compliance)
+
+### Backend (`apps/server/src`)
+```
+src/
+├── auth/                 # decorators/guards/strategies/dto
+├── common/               # config, filters, utilities
+├── prisma/               # Prisma module/service
+├── [feature]/            # feature modules (controller/service/module + dto)
+```
+
+### Frontend (`apps/web`)
+```
+app/                      # App Router routes
+components/               # Reusable components (PascalCase)
+lib/                      # Core libs (api-client, auth, providers)
+services/                 # HTTP service classes
+queries/                  # TanStack Query hooks
+utils/                    # Utilities (e.g., deepTrim)
+config/                   # env config, routes
+contexts/                 # React contexts (AuthContext)
+```
+
+## 🧪 Testing
+- Backend: Jest unit tests for services; integration tests with Nest test app and Prisma test DB
+- Frontend: React Testing Library for components; mock network with service stubs
+- Keep tests deterministic; avoid real network/filesystem
+
+## 📊 Performance
+- Frontend: memoize expensive components; stabilize props; prefer query caching over local duplication
+- Use pagination and server-side filtering for large lists
+- Backend: add DB indexes; avoid heavy work in request path; schedule cron jobs for background work
+
+## 📝 Documentation & DX
+- Swagger docs with summaries and examples for controllers
+- Comment non-obvious logic only; keep comments concise and high-signal
+- Keep README and environment docs up to date
+
+## 🌐 Environment & Configuration
+- Backend `config.ts` is the single source of truth; use non-null envs for required values
+- Frontend runtime env via `next-runtime-env`; all public vars prefixed with `NEXT_PUBLIC_`
+- Key envs (non-exhaustive):
+  - Backend: `HOST`, `PORT`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `FRONTEND_URL`, `API_URL`, `CORS_URLS`, `DATABASE_URL`, `SMTP_*`, `S3_*`
+  - Frontend: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_AGENT_URL`, `NEXT_PUBLIC_GITHUB_TOKEN`
+
+## ✅ Do/Don’t Quick Reference
+- Do keep controllers thin; put logic in services
+- Do use `ApiClient` from services; don’t fetch in components
+- Do type all public APIs and component props
+- Do use `enum` and shared types; don’t hardcode magic strings
+- Do handle loading/empty/error states explicitly
+- Don’t catch and ignore errors; rethrow with context or show user feedback
+- Don’t bypass DTO/Zod validation
+
+## 📦 Example Patterns
+
+```typescript
+// apps/web/lib/api-client.ts (essentials)
+const response = await axios.create({ baseURL, headers }).request<T>(config);
+return response.data;
+```
+
+```typescript
+// apps/server/src/main.ts (essentials)
+app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+app.useGlobalFilters(new GlobalExceptionFilter());
+SwaggerModule.setup('docs', app, document);
+```
+
+Remember: Follow existing patterns first. When in doubt, prefer consistency, clarity, and explicitness. Ensure new code compiles, lints cleanly, and has useful logs and errors. 
