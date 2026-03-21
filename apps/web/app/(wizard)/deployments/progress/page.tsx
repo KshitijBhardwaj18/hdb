@@ -88,6 +88,13 @@ const DESTROY_STAGE_MAP: typeof STAGE_MAP = [
   },
 ];
 
+/** Detect terminal failure from events (faster than status polling). */
+function hasTerminalFailure(events: DeploymentEvent[], isDestroy: boolean): boolean {
+  return events.some(
+    (e) => e.event_type === (isDestroy ? 'destroy_failed' : 'deploy_failed'),
+  );
+}
+
 function buildStages(
   events: DeploymentEvent[],
   backendStatus: DeploymentStatus | undefined,
@@ -95,6 +102,7 @@ function buildStages(
 ): Stage[] {
   const stageMap = isDestroy ? DESTROY_STAGE_MAP : STAGE_MAP;
   const eventTypes = new Set(events.map((e) => e.event_type));
+  const terminalFail = hasTerminalFailure(events, isDestroy);
 
   return stageMap.map((def) => {
     const stageEvents = events.filter(
@@ -111,7 +119,10 @@ function buildStages(
     let status: Stage['status'] = 'pending';
     if (hasFailed) status = 'failed';
     else if (hasDone) status = 'completed';
-    else if (hasStarted) status = 'in-progress';
+    else if (hasStarted) {
+      // If terminal failure happened, any in-progress stage is failed too
+      status = terminalFail ? 'failed' : 'in-progress';
+    }
 
     return { id: def.id, label: def.label, status, events: stageEvents };
   });
@@ -147,34 +158,31 @@ export default function DeploymentProgressPage() {
     [events, backendStatus, isDestroy],
   );
 
-  // Compute elapsed from deployment timestamps
+  // Detect failure from events (faster than status poll)
+  const eventFailed = hasTerminalFailure(events, isDestroy);
+  const isFailed = backendStatus === DeploymentStatus.FAILED || eventFailed;
+  const isTerminal =
+    isFailed ||
+    backendStatus === DeploymentStatus.SUCCEEDED ||
+    backendStatus === DeploymentStatus.DESTROYED;
+
+  // Compute elapsed from first/last event timestamps (safe — events are cleared each run)
   const elapsedSeconds = (() => {
-    if (!deployment?.updated_at) return 0;
-    if (
-      deployment.status === DeploymentStatus.FAILED ||
-      deployment.status === DeploymentStatus.SUCCEEDED ||
-      deployment.status === DeploymentStatus.DESTROYED
-    ) {
-      const startMs = parseUtc(deployment.created_at);
-      const endMs = parseUtc(deployment.updated_at);
+    if (events.length === 0) return 0;
+    const startMs = parseUtc(events[0]!.timestamp);
+    if (isTerminal) {
+      const endMs = parseUtc(events[events.length - 1]!.timestamp);
       return Math.max(0, Math.floor((endMs - startMs) / 1000));
     }
-    const startMs = parseUtc(deployment.created_at);
-    const nowMs = Date.now();
-    return Math.max(0, Math.floor((nowMs - startMs) / 1000));
+    return Math.max(0, Math.floor((Date.now() - startMs) / 1000));
   })();
 
-  // Tick every second for the timer
+  // Tick every second for the timer (stop on terminal state)
   useEffect(() => {
-    if (
-      backendStatus === DeploymentStatus.FAILED ||
-      backendStatus === DeploymentStatus.SUCCEEDED ||
-      backendStatus === DeploymentStatus.DESTROYED
-    )
-      return;
+    if (isTerminal) return;
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(timer);
-  }, [backendStatus]);
+  }, [isTerminal]);
 
   // Navigate to complete after success
   useEffect(() => {
@@ -205,8 +213,10 @@ export default function DeploymentProgressPage() {
   }, [stages]);
 
   const completedCount = stages.filter((s) => s.status === 'completed').length;
-  const overallProgress = Math.round((completedCount / stages.length) * 100);
-  const isFailed = backendStatus === DeploymentStatus.FAILED;
+  const failedCount = stages.filter((s) => s.status === 'failed').length;
+  const overallProgress = isFailed
+    ? Math.round(((completedCount + failedCount) / stages.length) * 100)
+    : Math.round((completedCount / stages.length) * 100);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -236,8 +246,11 @@ export default function DeploymentProgressPage() {
       ? 'Destroying Infrastructure'
       : 'Deploying Your Cluster';
 
+  const failedEvent = events.findLast((e) =>
+    e.event_type === 'deploy_failed' || e.event_type === 'destroy_failed',
+  );
   const subtitle = isFailed
-    ? deployment?.error_message || 'An error occurred'
+    ? deployment?.error_message || failedEvent?.message || 'An error occurred'
     : isDestroy
       ? 'Removing all resources from your AWS account'
       : 'This typically takes 30-40 minutes';
@@ -483,16 +496,27 @@ export default function DeploymentProgressPage() {
           </span>
         </div>
 
-        {isFailed && !isDestroy ? (
-          <button
-            onClick={handleRetry}
-            disabled={retryDeploy.isPending}
-            className='rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
-            style={{ fontFamily: 'Satoshi, sans-serif' }}
-          >
-            {retryDeploy.isPending ? 'Retrying...' : 'Retry Deployment'}
-          </button>
-        ) : !isFailed ? (
+        {isFailed ? (
+          <>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className='rounded-lg px-5 py-2.5 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+              style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+            >
+              Go to Dashboard
+            </button>
+            {!isDestroy && (
+              <button
+                onClick={handleRetry}
+                disabled={retryDeploy.isPending}
+                className='rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
+                style={{ fontFamily: 'Satoshi, sans-serif' }}
+              >
+                {retryDeploy.isPending ? 'Retrying...' : 'Retry Deployment'}
+              </button>
+            )}
+          </>
+        ) : (
           <button
             onClick={() => setShowStopConfirm(true)}
             className='rounded-lg bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700'
@@ -500,7 +524,7 @@ export default function DeploymentProgressPage() {
           >
             {isDestroy ? 'Stop Destroy' : 'Stop Deployment'}
           </button>
-        ) : null}
+        )}
       </div>
 
       {/* Stop Deployment Confirmation Modal */}

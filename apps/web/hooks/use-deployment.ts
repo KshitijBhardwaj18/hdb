@@ -98,6 +98,18 @@ export function useDeploymentEvents(
       return accumulatedRef.current;
     },
     enabled: enabled && !!customerId && !!environment,
-    refetchInterval: 3000,
+    refetchInterval: (query) => {
+      // Stop polling once we've received a terminal event
+      const evts = query.state.data;
+      if (evts?.some((e) =>
+        e.event_type === 'deploy_succeeded' ||
+        e.event_type === 'deploy_failed' ||
+        e.event_type === 'destroy_succeeded' ||
+        e.event_type === 'destroy_failed'
+      )) {
+        return false;
+      }
+      return 3000;
+    },
   });
 }

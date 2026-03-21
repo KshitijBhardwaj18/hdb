@@ -129,6 +129,38 @@ def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: igno
 
         db.add_event(stack_name, DeploymentEventType.CONFIG_LOADED, "Configuration loaded")
 
+        # --- clean up orphaned Secrets Manager secrets from previous failed deploys ---
+        try:
+            import boto3
+
+            sts = boto3.client("sts", region_name=config.aws_config.region)
+            assumed = sts.assume_role(
+                RoleArn=config.aws_config.role_arn,
+                ExternalId=config.aws_config.external_id,
+                RoleSessionName=f"byoc-cleanup-{customer_id}",
+                DurationSeconds=900,
+            )
+            creds = assumed["Credentials"]
+            sm = boto3.client(
+                "secretsmanager",
+                region_name=config.aws_config.region,
+                aws_access_key_id=creds["AccessKeyId"],
+                aws_secret_access_key=creds["SecretAccessKey"],
+                aws_session_token=creds["SessionToken"],
+            )
+            for secret_suffix in ["cortex-app", "cortex-ingestion", "nextjs", "argocd-generated-tokens"]:
+                secret_name = f"/byoc/{customer_id}/{secret_suffix}"
+                try:
+                    sm.describe_secret(SecretId=secret_name)
+                    sm.delete_secret(SecretId=secret_name, ForceDeleteWithoutRecovery=True)
+                    logger.info("Cleaned up orphaned secret: %s", secret_name)
+                except sm.exceptions.ResourceNotFoundException:
+                    pass
+                except Exception as e:
+                    logger.warning("Could not clean up secret %s: %s", secret_name, e)
+        except Exception as e:
+            logger.warning("Pre-deploy secret cleanup failed (non-fatal): %s", e)
+
         engine = PulumiEngine(
             backend_url=settings.pulumi_backend_url,
             secrets_provider=settings.pulumi_secrets_provider,
