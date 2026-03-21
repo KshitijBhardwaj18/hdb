@@ -3,7 +3,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Never
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -37,8 +37,7 @@ router = APIRouter(
 # ---------------------------------------------------------------------------
 
 
-def _raise(code: ErrorCode, message: str, http_status: int = 409) -> None:
-    """Always raises — return type is None for FastAPI compat but never returns."""
+def _raise(code: ErrorCode, message: str, http_status: int = 409) -> Never:
     raise HTTPException(
         status_code=http_status,
         detail=ApiErrorResponse(code=code, message=message).model_dump(),
@@ -113,7 +112,6 @@ async def deploy(
             "Create a configuration first using POST /api/v1/configs",
             http_status=404,
         )
-        return  # unreachable — keeps pyright happy
 
     stack_name = f"{customer_id}-{request.environment}"
 
@@ -195,7 +193,6 @@ async def get_deployment_status(
             f"Deployment for {customer_id}-{environment} not found",
             http_status=404,
         )
-        return  # unreachable — keeps pyright happy  # type: ignore[return-value]
 
     return _doc_to_deployment(deployment)
 
@@ -273,7 +270,6 @@ async def list_customer_deployments(
             f"Customer '{customer_id}' not found",
             http_status=404,
         )
-        return []  # unreachable — keeps pyright happy
     deployments = db.get_deployments_by_customer(customer_id)
     user_deployments = [d for d in deployments if d.get("user_id") == current_user.id]
     return [_doc_to_deployment(d) for d in user_deployments]
@@ -383,7 +379,6 @@ async def install_addons(
             f"Deployment {stack_name} not found",
             http_status=404,
         )
-        return  # unreachable — keeps pyright happy  # type: ignore[return-value]
 
     if existing["status"] != DeploymentStatus.SUCCEEDED:
         _raise(
