@@ -257,7 +257,7 @@ export default function DeploymentProgressPage() {
       ? 'Destroying Infrastructure'
       : 'Deploying Your Cluster';
 
-  const failedEvent = events.findLast((e) =>
+  const failedEvent = [...events].reverse().find((e) =>
     e.event_type === 'deploy_failed' || e.event_type === 'destroy_failed',
   );
   const subtitle = isFailed
