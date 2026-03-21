@@ -354,51 +354,52 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             if len(pulumi_lines) > 200:
                 pulumi_lines.pop(0)
 
-        import time as _time
-
-        max_destroy_attempts = 3
-        last_error_context = ""
-        for attempt in range(1, max_destroy_attempts + 1):
-            logger.info("Pulumi destroy attempt %d/%d for %s", attempt, max_destroy_attempts, stack_name)
-            pulumi_lines.clear()
-
+        max_attempts = 3
+        result = None
+        for attempt in range(1, max_attempts + 1):
             result = engine.destroy(stack_name, on_output=_on_output)
-
             if result.summary.result == "succeeded":
-                db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_SUCCEEDED, "Pulumi destroy completed")
-                db.transition_deployment_status(
-                    stack_name=stack_name,
-                    to_status=DeploymentStatus.DESTROYED,
-                    outputs="",
-                    error_message="",
+                break
+            if attempt < max_attempts:
+                logger.warning(
+                    "Destroy attempt %d/%d failed for %s. Waiting 5min for AWS cleanup...",
+                    attempt, max_attempts, stack_name,
                 )
-                db.add_event(stack_name, DeploymentEventType.DESTROY_SUCCEEDED, "All infrastructure destroyed successfully")
-                db.audit_log("destroy_succeeded", customer_id, environment=environment)
-                return {"status": "destroyed", "stack_name": stack_name}
+                db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_FAILED,
+                             f"Destroy attempt {attempt} failed, retrying in 5 minutes...")
+                time.sleep(300)
 
-            last_error_context = "\n".join(pulumi_lines[-30:])
-            error_msg = f"Destroy attempt {attempt}/{max_destroy_attempts} failed: {result.summary.result}"
-            db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_FAILED, error_msg, details=last_error_context)
-            logger.warning(error_msg)
+        if result.summary.result == "succeeded":
+            db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_SUCCEEDED, "Pulumi destroy completed")
+            db.transition_deployment_status(
+                stack_name=stack_name,
+                to_status=DeploymentStatus.DESTROYED,
+                outputs="",
+                error_message="",
+            )
+            db.add_event(stack_name, DeploymentEventType.DESTROY_SUCCEEDED, "All infrastructure destroyed successfully")
+            db.audit_log("destroy_succeeded", customer_id, environment=environment)
+            return {"status": "destroyed", "stack_name": stack_name}
 
-            if attempt < max_destroy_attempts:
-                wait_secs = 300  # 5 minutes between retries
-                db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING, f"Retrying destroy in {wait_secs}s (attempt {attempt + 1}/{max_destroy_attempts})")
-                _time.sleep(wait_secs)
-
-        # All attempts exhausted
-        final_msg = f"Destroy failed after {max_destroy_attempts} attempts"
+        error_context = "\n".join(pulumi_lines[-30:])
+        error_msg = f"Destroy failed after {max_attempts} attempts: {result.summary.result}"
+        db.add_event(
+            stack_name,
+            DeploymentEventType.PULUMI_DESTROY_FAILED,
+            error_msg,
+            details=error_context,
+        )
         db.transition_deployment_status(
             stack_name=stack_name,
             to_status=DeploymentStatus.FAILED,
-            error_message=final_msg,
+            error_message=error_msg,
         )
-        db.add_event(stack_name, DeploymentEventType.DESTROY_FAILED, final_msg, details=last_error_context)
+        db.add_event(stack_name, DeploymentEventType.DESTROY_FAILED, error_msg)
         db.audit_log(
             "destroy_failed",
             customer_id,
             environment=environment,
-            details=final_msg,
+            details=f"result: {result.summary.result}",
         )
         return {"status": "failed", "stack_name": stack_name}
 
