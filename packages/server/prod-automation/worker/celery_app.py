@@ -387,19 +387,18 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
                 pulumi_lines.pop(0)
 
         max_attempts = 3
-        result = None
-        for attempt in range(1, max_attempts + 1):
-            result = engine.destroy(stack_name, on_output=_on_output)
+        result = engine.destroy(stack_name, on_output=_on_output)
+        for attempt in range(2, max_attempts + 1):
             if result.summary.result == "succeeded":
                 break
-            if attempt < max_attempts:
-                logger.warning(
-                    "Destroy attempt %d/%d failed for %s. Waiting 5min for AWS cleanup...",
-                    attempt, max_attempts, stack_name,
-                )
-                db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_FAILED,
-                             f"Destroy attempt {attempt} failed, retrying in 5 minutes...")
-                time.sleep(300)
+            logger.warning(
+                "Destroy attempt %d/%d failed for %s. Waiting 5min for AWS cleanup...",
+                attempt - 1, max_attempts, stack_name,
+            )
+            db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_FAILED,
+                         f"Destroy attempt {attempt - 1} failed, retrying in 5 minutes...")
+            time.sleep(300)
+            result = engine.destroy(stack_name, on_output=_on_output)
 
         if result.summary.result == "succeeded":
             db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_SUCCEEDED, "Pulumi destroy completed")
