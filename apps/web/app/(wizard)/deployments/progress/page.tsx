@@ -224,10 +224,7 @@ export default function DeploymentProgressPage() {
   }, [stages]);
 
   const completedCount = stages.filter((s) => s.status === 'completed').length;
-  const failedCount = stages.filter((s) => s.status === 'failed').length;
-  const overallProgress = isFailed
-    ? Math.round(((completedCount + failedCount) / stages.length) * 100)
-    : Math.round((completedCount / stages.length) * 100);
+  const overallProgress = isFailed ? 100 : Math.round((completedCount / stages.length) * 100);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -261,7 +258,7 @@ export default function DeploymentProgressPage() {
     e.event_type === 'deploy_failed' || e.event_type === 'destroy_failed',
   );
   const subtitle = isFailed
-    ? deployment?.error_message || failedEvent?.message || 'An error occurred'
+    ? 'Something went wrong. Check the logs below for details.'
     : isDestroy
       ? 'Removing all resources from your AWS account'
       : 'This typically takes 30-40 minutes';
@@ -324,7 +321,7 @@ export default function DeploymentProgressPage() {
 
               <div className='mb-2 flex gap-1'>
                 {stages.map((stage, i) => {
-                  const progress = getSegmentProgress(i);
+                  const progress = isFailed ? 100 : getSegmentProgress(i);
                   return (
                     <div
                       key={stage.id}
@@ -334,7 +331,7 @@ export default function DeploymentProgressPage() {
                         className='h-full rounded-sm transition-all duration-500'
                         style={{
                           width: `${progress}%`,
-                          background: stage.status === 'failed'
+                          background: isFailed
                             ? '#EF4444'
                             : isDestroy
                               ? 'linear-gradient(90deg, #EF4444, #F87171)'
