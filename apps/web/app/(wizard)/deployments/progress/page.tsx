@@ -166,26 +166,17 @@ export default function DeploymentProgressPage() {
     backendStatus === DeploymentStatus.SUCCEEDED ||
     backendStatus === DeploymentStatus.DESTROYED;
 
-  // Compute elapsed purely from server timestamps (avoids client/server clock skew).
-  // For in-progress: server span + local seconds since last event poll.
-  const serverSpanMs = useMemo(() => {
-    if (events.length < 2) return 0;
-    return parseUtc(events[events.length - 1]!.timestamp) - parseUtc(events[0]!.timestamp);
-  }, [events]);
-
-  const lastEventReceivedAt = useRef(0);
-  useEffect(() => {
-    if (events.length > 0) lastEventReceivedAt.current = Date.now();
-  }, [events]);
-
+  // Elapsed time:
+  // - Terminal: purely server timestamps (first event → last event)
+  // - In-progress: first event timestamp → Date.now() (survives remount/re-login)
   const elapsedSeconds = (() => {
     if (events.length === 0) return 0;
+    const startMs = parseUtc(events[0]!.timestamp);
     if (isTerminal) {
-      return Math.max(0, Math.floor(serverSpanMs / 1000));
+      const endMs = parseUtc(events[events.length - 1]!.timestamp);
+      return Math.max(0, Math.floor((endMs - startMs) / 1000));
     }
-    // Server span + time since we last received an event (local delta only)
-    const localDelta = lastEventReceivedAt.current > 0 ? Date.now() - lastEventReceivedAt.current : 0;
-    return Math.max(0, Math.floor((serverSpanMs + localDelta) / 1000));
+    return Math.max(0, Math.floor((Date.now() - startMs) / 1000));
   })();
 
   // Tick every second for the timer (stop on terminal state)
