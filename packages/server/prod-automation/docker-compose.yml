@@ -1,6 +1,7 @@
 version: '3.8'
 
 x-common-env: &common-env
+  PYTHONPATH: /app
   MONGODB_URI: ${MONGODB_URI}
   MONGODB_DATABASE: ${MONGODB_DATABASE:-byoc_platform}
   REDIS_URL: redis://redis:6379/0
