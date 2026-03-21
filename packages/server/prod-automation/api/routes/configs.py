@@ -11,13 +11,30 @@ from api.config_storage import config_storage
 from api.database import db
 from api.dependencies import get_current_user
 from api.models import (
+    ApiErrorResponse,
     CustomerConfigInput,
     CustomerConfigListResponse,
     CustomerConfigResolved,
     CustomerConfigResponse,
+    DeploymentStatus,
+    ErrorCode,
     ValidationErrorResponse,
 )
 from api.validation import ConfigValidationError, validate_config
+
+
+def _check_config_not_locked(user_id: str, customer_id: str, environment: str = "prod") -> None:
+    """Raise 409 if the deployment is in a non-editable state."""
+    if db.has_active_deployment(user_id, customer_id, environment):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ApiErrorResponse(
+                code=ErrorCode.CONFIG_LOCKED,
+                message=f"Configuration for '{customer_id}' cannot be modified while a "
+                "deployment is pending, in progress, or being destroyed. "
+                "Wait for the operation to complete first.",
+            ).model_dump(),
+        )
 
 router = APIRouter(
     prefix="/api/v1/configs",
@@ -136,6 +153,9 @@ async def update_config(
             detail=f"Configuration for customer '{customer_id}' not found",
         )
 
+    # Block edits while deployment is active
+    _check_config_not_locked(current_user.id, customer_id, request.environment)
+
     if request.customer_id != customer_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -178,7 +198,28 @@ async def delete_config(
     customer_id: str,
     current_user: UserResponse = Depends(get_current_user),
 ) -> None:
-    """Delete a customer configuration."""
+    """Delete a customer configuration.
+
+    Blocked while any deployment for this customer is in a non-terminal state.
+    """
+    # Check ALL environments — we check the common default plus any existing deployments
+    deployments = db.get_deployments_for_user(current_user.id)
+    for dep in deployments:
+        if dep["customer_id"] == customer_id and dep["status"] in (
+            DeploymentStatus.PENDING,
+            DeploymentStatus.IN_PROGRESS,
+            DeploymentStatus.DESTROYING,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=ApiErrorResponse(
+                    code=ErrorCode.CONFIG_LOCKED,
+                    message=f"Cannot delete configuration for '{customer_id}' while "
+                    f"deployment '{dep['stack_name']}' is {dep['status'].value}. "
+                    "Wait for it to complete or be destroyed first.",
+                ).model_dump(),
+            )
+
     if not config_storage.delete(current_user.id, customer_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

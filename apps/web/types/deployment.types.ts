@@ -226,11 +226,61 @@ export interface CustomerDeployment {
   aws_region: string;
   role_arn: string;
   status: DeploymentStatus;
+  addon_status?: string | null;
   pulumi_deployment_id?: string;
   outputs?: Record<string, unknown>;
   error_message?: string;
   created_at: string;
   updated_at: string;
+}
+
+// --- Deployment Events (real-time progress) ---
+
+export type DeploymentEventType =
+  // Deploy lifecycle
+  | 'deploy_queued'
+  | 'deploy_lock_acquired'
+  | 'deploy_lock_failed'
+  | 'config_loaded'
+  | 'pulumi_configuring'
+  | 'pulumi_running'
+  | 'pulumi_progress'
+  | 'pulumi_succeeded'
+  | 'pulumi_failed'
+  | 'gitops_started'
+  | 'gitops_succeeded'
+  | 'gitops_failed'
+  | 'addons_waiting'
+  | 'addons_started'
+  | 'addons_succeeded'
+  | 'addons_failed'
+  | 'deploy_succeeded'
+  | 'deploy_failed'
+  // Destroy lifecycle
+  | 'destroy_queued'
+  | 'destroy_lock_acquired'
+  | 'destroy_lock_failed'
+  | 'cleanup_started'
+  | 'cleanup_succeeded'
+  | 'cleanup_failed'
+  | 'pulumi_destroying'
+  | 'pulumi_destroy_succeeded'
+  | 'pulumi_destroy_failed'
+  | 'destroy_succeeded'
+  | 'destroy_failed';
+
+export interface DeploymentEvent {
+  id: string;
+  event_type: DeploymentEventType;
+  stack_name: string;
+  message: string;
+  timestamp: string;
+  details?: string | null;
+}
+
+export interface DeploymentEventsResponse {
+  stack_name: string;
+  events: DeploymentEvent[];
 }
 
 // --- AWS Connection Test ---

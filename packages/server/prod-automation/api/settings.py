@@ -1,6 +1,9 @@
+import logging
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_settings_logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -39,6 +42,9 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_expires_in_hours: int = 168  # 7 days
 
+    # Deployment limits
+    max_deployments_per_user: int = 5
+
     # CORS
     cors_origins: str = "http://localhost:3000"
 
@@ -68,7 +74,13 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    if s.jwt_secret == "change-me-in-production":
+        _settings_logger.warning(
+            "JWT_SECRET is still the default value! "
+            "Set the JWT_SECRET environment variable to a strong random string."
+        )
+    return s
 
 
 settings = get_settings()

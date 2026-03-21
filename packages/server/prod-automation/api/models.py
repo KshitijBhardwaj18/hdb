@@ -17,6 +17,21 @@ class DeploymentStatus(str, Enum):
     DESTROYED = "destroyed"
 
 
+# State machine: allowed transitions from each status
+VALID_TRANSITIONS: dict["DeploymentStatus", set["DeploymentStatus"]] = {
+    DeploymentStatus.PENDING: {DeploymentStatus.IN_PROGRESS, DeploymentStatus.FAILED},
+    DeploymentStatus.IN_PROGRESS: {DeploymentStatus.SUCCEEDED, DeploymentStatus.FAILED},
+    DeploymentStatus.SUCCEEDED: {DeploymentStatus.PENDING, DeploymentStatus.DESTROYING},
+    DeploymentStatus.FAILED: {DeploymentStatus.PENDING, DeploymentStatus.DESTROYING},
+    DeploymentStatus.DESTROYING: {DeploymentStatus.DESTROYED, DeploymentStatus.FAILED},
+    DeploymentStatus.DESTROYED: set(),  # terminal state — no transitions allowed
+}
+
+
+def is_valid_transition(from_status: "DeploymentStatus", to_status: "DeploymentStatus") -> bool:
+    return to_status in VALID_TRANSITIONS.get(from_status, set())
+
+
 class NatGatewayStrategy(str, Enum):
     """NAT Gateway deployment strategy."""
 
@@ -865,12 +880,105 @@ class CustomerDeployment(BaseModel):
     aws_region: str
     role_arn: str
     status: DeploymentStatus
+    addon_status: Optional[str] = Field(
+        default=None,
+        description="Addon install status: pending, in_progress, succeeded, failed",
+    )
     pulumi_deployment_id: Optional[str] = None
     outputs: Optional[dict] = None
     error_message: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
+
+# ---------------------------------------------------------------------------
+# Deployment events — real-time tracking of deploy / destroy progress
+# ---------------------------------------------------------------------------
+
+
+class DeploymentEventType(str, Enum):
+    """Types of deployment events for real-time progress tracking."""
+
+    # Deploy lifecycle
+    DEPLOY_QUEUED = "deploy_queued"
+    DEPLOY_LOCK_ACQUIRED = "deploy_lock_acquired"
+    DEPLOY_LOCK_FAILED = "deploy_lock_failed"
+    CONFIG_LOADED = "config_loaded"
+    PULUMI_CONFIGURING = "pulumi_configuring"
+    PULUMI_RUNNING = "pulumi_running"
+    PULUMI_PROGRESS = "pulumi_progress"
+    PULUMI_SUCCEEDED = "pulumi_succeeded"
+    PULUMI_FAILED = "pulumi_failed"
+    GITOPS_STARTED = "gitops_started"
+    GITOPS_SUCCEEDED = "gitops_succeeded"
+    GITOPS_FAILED = "gitops_failed"
+    ADDONS_WAITING = "addons_waiting"
+    ADDONS_STARTED = "addons_started"
+    ADDONS_SUCCEEDED = "addons_succeeded"
+    ADDONS_FAILED = "addons_failed"
+    DEPLOY_SUCCEEDED = "deploy_succeeded"
+    DEPLOY_FAILED = "deploy_failed"
+
+    # Destroy lifecycle
+    DESTROY_QUEUED = "destroy_queued"
+    DESTROY_LOCK_ACQUIRED = "destroy_lock_acquired"
+    DESTROY_LOCK_FAILED = "destroy_lock_failed"
+    CLEANUP_STARTED = "cleanup_started"
+    CLEANUP_SUCCEEDED = "cleanup_succeeded"
+    CLEANUP_FAILED = "cleanup_failed"
+    PULUMI_DESTROYING = "pulumi_destroying"
+    PULUMI_DESTROY_SUCCEEDED = "pulumi_destroy_succeeded"
+    PULUMI_DESTROY_FAILED = "pulumi_destroy_failed"
+    DESTROY_SUCCEEDED = "destroy_succeeded"
+    DESTROY_FAILED = "destroy_failed"
+
+
+class DeploymentEvent(BaseModel):
+    """A single event in the deployment lifecycle."""
+
+    id: str = Field(default="", description="MongoDB document ID")
+    event_type: DeploymentEventType
+    stack_name: str
+    message: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    details: Optional[str] = None
+
+
+class DeploymentEventsResponse(BaseModel):
+    """Response for deployment events endpoint."""
+
+    stack_name: str
+    events: list[DeploymentEvent]
+
+
+# ---------------------------------------------------------------------------
+# Structured API error codes
+# ---------------------------------------------------------------------------
+
+
+class ErrorCode(str, Enum):
+    """Machine-readable error codes returned by the API."""
+
+    DEPLOYMENT_IN_PROGRESS = "DEPLOYMENT_IN_PROGRESS"
+    DEPLOYMENT_DESTROYING = "DEPLOYMENT_DESTROYING"
+    DEPLOYMENT_NOT_FOUND = "DEPLOYMENT_NOT_FOUND"
+    CONFIG_NOT_FOUND = "CONFIG_NOT_FOUND"
+    CONFIG_LOCKED = "CONFIG_LOCKED"
+    CONFIG_EXISTS = "CONFIG_EXISTS"
+    OPERATION_LOCKED = "OPERATION_LOCKED"
+    INVALID_TRANSITION = "INVALID_TRANSITION"
+    QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
+    ALREADY_DESTROYED = "ALREADY_DESTROYED"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
+class ApiErrorResponse(BaseModel):
+    """Structured API error response."""
+
+    code: ErrorCode
+    message: str
+    details: Optional[str] = None
 
 
 class ValidationErrorDetail(BaseModel):

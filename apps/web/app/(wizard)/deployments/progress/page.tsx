@@ -2,74 +2,122 @@
 
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Clock, Loader2, AlertCircle } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
-import { useDeploymentStatus, useDeploy } from '@/hooks/use-deployment';
+import { useEffect, useState, useRef, useMemo } from 'react';
+import { useDeploymentStatus, useDeploymentEvents, useDeploy } from '@/hooks/use-deployment';
 import { DeploymentStatus } from '@/types/deployment.types';
+import type { DeploymentEvent, DeploymentEventType } from '@/types/deployment.types';
 
-interface DeploymentStage {
+// ---------------------------------------------------------------------------
+// Stage definitions — mapped from real backend events
+// ---------------------------------------------------------------------------
+
+interface Stage {
   id: string;
   label: string;
   status: 'completed' | 'in-progress' | 'pending' | 'failed';
+  events: DeploymentEvent[];
 }
 
-const STAGE_DEFS: { id: string; label: string }[] = [
-  { id: 'network', label: 'Creating Network' },
-  { id: 'cluster', label: 'Provisioning Cluster' },
-  { id: 'storage', label: 'Setting Up Storage' },
-  { id: 'platform', label: 'Installing Platform' },
-  { id: 'applications', label: 'Deploying Applications' },
+/** Which event types belong to which stage. */
+const STAGE_MAP: { id: string; label: string; startEvents: DeploymentEventType[]; doneEvents: DeploymentEventType[]; failEvents: DeploymentEventType[] }[] = [
+  {
+    id: 'setup',
+    label: 'Preparing Deployment',
+    startEvents: ['deploy_queued', 'deploy_lock_acquired', 'config_loaded'],
+    doneEvents: ['config_loaded'],
+    failEvents: ['deploy_lock_failed'],
+  },
+  {
+    id: 'infrastructure',
+    label: 'Provisioning Infrastructure',
+    startEvents: ['pulumi_configuring', 'pulumi_running', 'pulumi_progress'],
+    doneEvents: ['pulumi_succeeded'],
+    failEvents: ['pulumi_failed'],
+  },
+  {
+    id: 'gitops',
+    label: 'Configuring GitOps',
+    startEvents: ['gitops_started'],
+    doneEvents: ['gitops_succeeded'],
+    failEvents: ['gitops_failed'],
+  },
+  {
+    id: 'addons',
+    label: 'Installing Applications',
+    startEvents: ['addons_waiting', 'addons_started'],
+    doneEvents: ['addons_succeeded'],
+    failEvents: ['addons_failed'],
+  },
+  {
+    id: 'complete',
+    label: 'Finalizing',
+    startEvents: ['deploy_succeeded'],
+    doneEvents: ['deploy_succeeded'],
+    failEvents: ['deploy_failed'],
+  },
 ];
 
-// Time-based heuristic: approximate minutes per stage (infra ~35 min)
-const STAGE_DURATIONS = [5, 12, 5, 8, 5]; // total ~35 min
+const DESTROY_STAGE_MAP: typeof STAGE_MAP = [
+  {
+    id: 'setup',
+    label: 'Preparing Destroy',
+    startEvents: ['destroy_queued', 'destroy_lock_acquired'],
+    doneEvents: ['destroy_lock_acquired'],
+    failEvents: ['destroy_lock_failed'],
+  },
+  {
+    id: 'cleanup',
+    label: 'Pre-Destroy Cleanup',
+    startEvents: ['cleanup_started'],
+    doneEvents: ['cleanup_succeeded'],
+    failEvents: ['cleanup_failed'],
+  },
+  {
+    id: 'destroy',
+    label: 'Destroying Infrastructure',
+    startEvents: ['pulumi_destroying'],
+    doneEvents: ['pulumi_destroy_succeeded'],
+    failEvents: ['pulumi_destroy_failed'],
+  },
+  {
+    id: 'complete',
+    label: 'Finalizing',
+    startEvents: ['destroy_succeeded'],
+    doneEvents: ['destroy_succeeded'],
+    failEvents: ['destroy_failed'],
+  },
+];
 
-// Extra addon installation time after backend reports SUCCEEDED (10 min)
-const ADDON_PHASE_SECONDS = 10 * 60;
-
-function getStagesFromElapsed(
-  elapsedSeconds: number,
+function buildStages(
+  events: DeploymentEvent[],
   backendStatus: DeploymentStatus | undefined,
-  addonPhaseActive: boolean,
-  addonElapsedSeconds: number,
-): DeploymentStage[] {
-  // Fully done (addon phase also complete)
-  if (backendStatus === DeploymentStatus.SUCCEEDED && !addonPhaseActive) {
-    return STAGE_DEFS.map((s) => ({ ...s, status: 'completed' as const }));
-  }
+  isDestroy: boolean,
+): Stage[] {
+  const stageMap = isDestroy ? DESTROY_STAGE_MAP : STAGE_MAP;
+  const eventTypes = new Set(events.map((e) => e.event_type));
 
-  if (backendStatus === DeploymentStatus.FAILED) {
-    const elapsedMinutes = elapsedSeconds / 60;
-    let accumulated = 0;
-    return STAGE_DEFS.map((s, i) => {
-      const stageStart = accumulated;
-      accumulated += STAGE_DURATIONS[i]!;
-      if (elapsedMinutes >= accumulated) return { ...s, status: 'completed' as const };
-      if (elapsedMinutes >= stageStart) return { ...s, status: 'failed' as const };
-      return { ...s, status: 'pending' as const };
-    });
-  }
+  return stageMap.map((def) => {
+    const stageEvents = events.filter(
+      (e) =>
+        def.startEvents.includes(e.event_type) ||
+        def.doneEvents.includes(e.event_type) ||
+        def.failEvents.includes(e.event_type),
+    );
 
-  // Backend succeeded but addon phase still running — first 4 complete, last one in progress
-  if (backendStatus === DeploymentStatus.SUCCEEDED && addonPhaseActive) {
-    return STAGE_DEFS.map((s, i) => {
-      if (i < 4) return { ...s, status: 'completed' as const };
-      return { ...s, status: 'in-progress' as const };
-    });
-  }
+    const hasFailed = def.failEvents.some((t) => eventTypes.has(t));
+    const hasDone = def.doneEvents.some((t) => eventTypes.has(t));
+    const hasStarted = def.startEvents.some((t) => eventTypes.has(t));
 
-  // Normal in-progress
-  const elapsedMinutes = elapsedSeconds / 60;
-  let accumulated = 0;
-  return STAGE_DEFS.map((s, i) => {
-    const stageStart = accumulated;
-    accumulated += STAGE_DURATIONS[i]!;
-    if (elapsedMinutes >= accumulated) return { ...s, status: 'completed' as const };
-    if (elapsedMinutes >= stageStart) return { ...s, status: 'in-progress' as const };
-    return { ...s, status: 'pending' as const };
+    let status: Stage['status'] = 'pending';
+    if (hasFailed) status = 'failed';
+    else if (hasDone) status = 'completed';
+    else if (hasStarted) status = 'in-progress';
+
+    return { id: def.id, label: def.label, status, events: stageEvents };
   });
 }
 
-// Parse server timestamp as UTC (append Z if no timezone info present)
+// Parse server timestamp as UTC
 function parseUtc(ts: string): number {
   if (!ts) return 0;
   const normalized = /[Z+\-]\d{0,2}:?\d{0,2}$/.test(ts) ? ts : ts + 'Z';
@@ -82,69 +130,73 @@ export default function DeploymentProgressPage() {
   const customerId = searchParams.get('customerId');
   const environment = searchParams.get('environment');
 
-  const [expandedStage, setExpandedStage] = useState<string | null>('network');
+  const [expandedStage, setExpandedStage] = useState<string | null>('setup');
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [, setTick] = useState(0);
   const navigatedRef = useRef(false);
-  const addonStartRef = useRef<number | null>(null);
 
   const { data: deployment } = useDeploymentStatus(customerId, environment);
+  const { data: events = [] } = useDeploymentEvents(customerId, environment);
   const retryDeploy = useDeploy();
 
   const backendStatus = deployment?.status;
+  const isDestroy = backendStatus === DeploymentStatus.DESTROYING || events.some((e) => e.event_type.startsWith('destroy_'));
 
-  // Track addon phase: starts when backend first reports SUCCEEDED
-  if (backendStatus === DeploymentStatus.SUCCEEDED && addonStartRef.current === null) {
-    addonStartRef.current = Date.now();
-  }
-  // Reset on retry
-  if (backendStatus === DeploymentStatus.PENDING || backendStatus === DeploymentStatus.IN_PROGRESS) {
-    addonStartRef.current = null;
-  }
-
-  const addonElapsedSeconds = addonStartRef.current
-    ? Math.floor((Date.now() - addonStartRef.current) / 1000)
-    : 0;
-  const addonPhaseActive = backendStatus === DeploymentStatus.SUCCEEDED && addonElapsedSeconds < ADDON_PHASE_SECONDS;
+  const stages = useMemo(
+    () => buildStages(events, backendStatus, isDestroy),
+    [events, backendStatus, isDestroy],
+  );
 
   // Compute elapsed from deployment timestamps
   const elapsedSeconds = (() => {
     if (!deployment?.updated_at) return 0;
-    if (deployment.status === DeploymentStatus.FAILED) {
+    if (
+      deployment.status === DeploymentStatus.FAILED ||
+      deployment.status === DeploymentStatus.SUCCEEDED ||
+      deployment.status === DeploymentStatus.DESTROYED
+    ) {
       const startMs = parseUtc(deployment.created_at);
       const endMs = parseUtc(deployment.updated_at);
       return Math.max(0, Math.floor((endMs - startMs) / 1000));
     }
-    const startMs = parseUtc(deployment.updated_at);
+    const startMs = parseUtc(deployment.created_at);
     const nowMs = Date.now();
     return Math.max(0, Math.floor((nowMs - startMs) / 1000));
   })();
 
-  const stages = getStagesFromElapsed(elapsedSeconds, backendStatus, addonPhaseActive, addonElapsedSeconds);
-
-  // Tick every second to re-render
+  // Tick every second for the timer
   useEffect(() => {
-    if (backendStatus === DeploymentStatus.FAILED) return;
-    if (backendStatus === DeploymentStatus.SUCCEEDED && !addonPhaseActive) return;
+    if (
+      backendStatus === DeploymentStatus.FAILED ||
+      backendStatus === DeploymentStatus.SUCCEEDED ||
+      backendStatus === DeploymentStatus.DESTROYED
+    )
+      return;
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(timer);
-  }, [backendStatus, addonPhaseActive]);
+  }, [backendStatus]);
 
-  // Navigate to complete after addon phase finishes
+  // Navigate to complete after success
   useEffect(() => {
-    if (backendStatus === DeploymentStatus.SUCCEEDED && !addonPhaseActive && !navigatedRef.current) {
+    if (
+      (backendStatus === DeploymentStatus.SUCCEEDED || backendStatus === DeploymentStatus.DESTROYED) &&
+      !navigatedRef.current
+    ) {
       navigatedRef.current = true;
       const timer = setTimeout(() => {
         const params = new URLSearchParams();
         if (customerId) params.set('customerId', customerId);
         if (environment) params.set('environment', environment);
-        params.set('elapsed', String(elapsedSeconds + ADDON_PHASE_SECONDS));
+        params.set('elapsed', String(elapsedSeconds));
         if (deployment?.aws_region) params.set('region', deployment.aws_region);
+        if (backendStatus === DeploymentStatus.DESTROYED) {
+          params.set('destroyed', '1');
+        }
         router.push(`/deployments/complete?${params.toString()}`);
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [backendStatus, addonPhaseActive, customerId, environment, elapsedSeconds, deployment, router]);
+  }, [backendStatus, customerId, environment, elapsedSeconds, deployment, router]);
 
   // Auto-expand current stage
   useEffect(() => {
@@ -155,9 +207,6 @@ export default function DeploymentProgressPage() {
   const completedCount = stages.filter((s) => s.status === 'completed').length;
   const overallProgress = Math.round((completedCount / stages.length) * 100);
   const isFailed = backendStatus === DeploymentStatus.FAILED;
-
-  // Display elapsed: for addon phase, add addon time to infra time
-  const displayElapsed = addonPhaseActive ? elapsedSeconds + addonElapsedSeconds : elapsedSeconds;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -171,24 +220,27 @@ export default function DeploymentProgressPage() {
     if (stage.status === 'completed') return 100;
     if (stage.status === 'pending') return 0;
     if (stage.status === 'failed') return 50;
-    // Addon phase progress for last stage
-    if (index === 4 && addonPhaseActive) {
-      return Math.min(Math.round((addonElapsedSeconds / ADDON_PHASE_SECONDS) * 100), 95);
-    }
-    const elapsedMinutes = elapsedSeconds / 60;
-    let stageStart = 0;
-    for (let i = 0; i < index; i++) stageStart += STAGE_DURATIONS[i]!;
-    const stageDuration = STAGE_DURATIONS[index]!;
-    const stageElapsed = elapsedMinutes - stageStart;
-    return Math.min(Math.round((stageElapsed / stageDuration) * 100), 95);
+    // In-progress: pulse at 60%
+    return 60;
   };
 
   const handleRetry = async () => {
     if (!customerId || !environment) return;
-    await retryDeploy.mutateAsync({ customerId, request: { environment } });
     navigatedRef.current = false;
-    addonStartRef.current = null;
+    await retryDeploy.mutateAsync({ customerId, request: { environment } });
   };
+
+  const title = isFailed
+    ? isDestroy ? 'Destroy Failed' : 'Deployment Failed'
+    : isDestroy
+      ? 'Destroying Infrastructure'
+      : 'Deploying Your Cluster';
+
+  const subtitle = isFailed
+    ? deployment?.error_message || 'An error occurred'
+    : isDestroy
+      ? 'Removing all resources from your AWS account'
+      : 'This typically takes 30-40 minutes';
 
   return (
     <div className='flex min-h-screen flex-col'>
@@ -202,7 +254,7 @@ export default function DeploymentProgressPage() {
             className='text-2xl font-semibold text-white'
             style={{ fontFamily: 'Satoshi, sans-serif' }}
           >
-            Deployment Progress
+            {isDestroy ? 'Destroy Progress' : 'Deployment Progress'}
           </h1>
           <p className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
             {customerId} / {environment}
@@ -222,22 +274,17 @@ export default function DeploymentProgressPage() {
       <div className='flex flex-1 items-start justify-center px-8 py-8'>
         <div className='w-full max-w-[900px]'>
           <div className='rounded-lg bg-[#222222] p-8' style={{ border: '0.5px solid #5B5B5B' }}>
-            {/* Title */}
             <h2
               className='mb-2 text-center text-2xl font-bold text-white'
               style={{ fontFamily: "'JetBrains Mono', monospace" }}
             >
-              {isFailed ? 'Deployment Failed' : addonPhaseActive ? 'Deploying Applications' : 'Deploying Your Cluster'}
+              {title}
             </h2>
             <p
               className='mb-8 text-center text-base text-[#A7A7A7]'
               style={{ fontFamily: 'Satoshi, sans-serif' }}
             >
-              {isFailed
-                ? deployment?.error_message || 'An error occurred during deployment'
-                : addonPhaseActive
-                  ? 'Infrastructure is ready. Installing applications and services...'
-                  : 'This typically takes 30-40 minutes'}
+              {subtitle}
             </p>
 
             {/* Progress bar */}
@@ -251,7 +298,6 @@ export default function DeploymentProgressPage() {
                 </span>
               </div>
 
-              {/* 5-segment progress bar */}
               <div className='mb-2 flex gap-1'>
                 {stages.map((stage, i) => {
                   const progress = getSegmentProgress(i);
@@ -266,7 +312,9 @@ export default function DeploymentProgressPage() {
                           width: `${progress}%`,
                           background: stage.status === 'failed'
                             ? '#EF4444'
-                            : 'linear-gradient(90deg, #00CF23, #00E025)',
+                            : isDestroy
+                              ? 'linear-gradient(90deg, #EF4444, #F87171)'
+                              : 'linear-gradient(90deg, #00CF23, #00E025)',
                         }}
                       />
                     </div>
@@ -274,7 +322,6 @@ export default function DeploymentProgressPage() {
                 })}
               </div>
 
-              {/* Stage labels */}
               <div className='flex'>
                 {stages.map((stage, i) => (
                   <span
@@ -282,7 +329,7 @@ export default function DeploymentProgressPage() {
                     className='flex-1 text-center text-xs text-[#A7A7A7]'
                     style={{ fontFamily: 'Satoshi, sans-serif' }}
                   >
-                    {String(i + 1).padStart(2, '0')}. {stage.label.replace('Creating ', '').replace('Provisioning ', '').replace('Setting Up ', '').replace('Installing ', '').replace('Deploying ', '')}
+                    {String(i + 1).padStart(2, '0')}. {stage.label}
                   </span>
                 ))}
               </div>
@@ -353,43 +400,70 @@ export default function DeploymentProgressPage() {
                         )}
                       </div>
 
-                      {stage.status !== 'pending' && (
+                      {stage.events.length > 0 && (
                         <button
                           onClick={() => setExpandedStage(isExpanded ? null : stage.id)}
                           className='flex items-center gap-1 text-sm text-[#A7A7A7] transition-colors hover:text-white'
                           style={{ fontFamily: 'Satoshi, sans-serif' }}
                         >
                           {isExpanded ? 'Hide Log' : 'View Log'}
-                          {isExpanded ? (
-                            <ChevronUp className='h-4 w-4' />
-                          ) : (
-                            <ChevronDown className='h-4 w-4' />
-                          )}
+                          {isExpanded ? <ChevronUp className='h-4 w-4' /> : <ChevronDown className='h-4 w-4' />}
                         </button>
                       )}
                     </div>
 
-                    {isExpanded && stage.status !== 'pending' && (
+                    {isExpanded && stage.events.length > 0 && (
                       <div
                         className='ml-11 mt-1 rounded-lg bg-[#1A1A1A] p-4'
                         style={{ border: '0.5px solid #333' }}
                       >
-                        <p
-                          className={`text-sm leading-relaxed ${stage.status === 'failed' ? 'text-red-400' : 'text-[#00CF23]'}`}
-                          style={{ fontFamily: "'JetBrains Mono', monospace" }}
-                        >
-                          {stage.status === 'failed'
-                            ? `> Error: ${deployment?.error_message || 'Deployment failed at this stage'}`
-                            : stage.status === 'completed'
-                              ? `> ${stage.label.replace('Creating', 'Created').replace('Provisioning', 'Provisioned').replace('Setting Up', 'Set up').replace('Installing', 'Installed').replace('Deploying', 'Deployed')} successfully.`
-                              : '> Processing...'}
-                        </p>
+                        <div className='flex flex-col gap-1'>
+                          {stage.events.map((event, idx) => (
+                            <p
+                              key={event.id || idx}
+                              className={`text-sm leading-relaxed ${
+                                event.event_type.includes('failed')
+                                  ? 'text-red-400'
+                                  : event.event_type.includes('succeeded') || event.event_type.includes('loaded')
+                                    ? 'text-[#00CF23]'
+                                    : 'text-[#A7A7A7]'
+                              }`}
+                              style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                            >
+                              <span className='text-[#555]'>
+                                [{new Date(event.timestamp).toLocaleTimeString()}]
+                              </span>{' '}
+                              {event.message}
+                            </p>
+                          ))}
+                          {stage.events.some((e) => e.details) && (
+                            <details className='mt-2'>
+                              <summary className='cursor-pointer text-xs text-[#555] hover:text-[#A7A7A7]'>
+                                Show details
+                              </summary>
+                              <pre className='mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs text-[#666]'>
+                                {stage.events
+                                  .filter((e) => e.details)
+                                  .map((e) => e.details)
+                                  .join('\n')}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
+
+            {/* No events yet — show waiting message */}
+            {events.length === 0 && !isFailed && (
+              <div className='mt-4 flex items-center justify-center gap-2 text-sm text-[#A7A7A7]'>
+                <Loader2 className='h-4 w-4 animate-spin' />
+                <span style={{ fontFamily: 'Satoshi, sans-serif' }}>Waiting for deployment to start...</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -405,11 +479,11 @@ export default function DeploymentProgressPage() {
         >
           <Clock className='h-4 w-4 text-white' />
           <span className='text-sm text-white'>
-            Time Elapsed : {formatTime(displayElapsed)}
+            Time Elapsed : {formatTime(elapsedSeconds)}
           </span>
         </div>
 
-        {isFailed ? (
+        {isFailed && !isDestroy ? (
           <button
             onClick={handleRetry}
             disabled={retryDeploy.isPending}
@@ -418,15 +492,15 @@ export default function DeploymentProgressPage() {
           >
             {retryDeploy.isPending ? 'Retrying...' : 'Retry Deployment'}
           </button>
-        ) : (
+        ) : !isFailed ? (
           <button
             onClick={() => setShowStopConfirm(true)}
             className='rounded-lg bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700'
             style={{ fontFamily: 'Satoshi, sans-serif' }}
           >
-            Stop Deployment
+            {isDestroy ? 'Stop Destroy' : 'Stop Deployment'}
           </button>
-        )}
+        ) : null}
       </div>
 
       {/* Stop Deployment Confirmation Modal */}
@@ -443,20 +517,14 @@ export default function DeploymentProgressPage() {
                   className='text-lg font-semibold text-white'
                   style={{ fontFamily: 'Satoshi, sans-serif' }}
                 >
-                  Cannot Stop Deployment
+                  Cannot Stop Operation
                 </h3>
               </div>
-              <p
-                className='text-sm text-[#A7A7A7]'
-                style={{ fontFamily: 'Satoshi, sans-serif' }}
-              >
-                Once a deployment has started, it cannot be stopped. The infrastructure
-                provisioning process must complete before any changes can be made.
+              <p className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                Once {isDestroy ? 'a destroy' : 'a deployment'} has started, it cannot be stopped.
+                The process must complete before any changes can be made.
               </p>
-              <p
-                className='text-sm text-[#A7A7A7]'
-                style={{ fontFamily: 'Satoshi, sans-serif' }}
-              >
+              <p className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
                 You can safely leave this page and check the progress from your dashboard.
               </p>
             </div>

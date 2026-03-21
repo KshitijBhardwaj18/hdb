@@ -95,18 +95,39 @@ export function AccountTab() {
     }
     setIsDeleting(true);
     try {
-      // Try to destroy the deployment first (if it exists)
+      // Step 1: Request destroy (backend will reject if already destroying/destroyed)
       try {
         await destroyMutation.mutateAsync({
           customerId: config.customer_id,
           environment: config.environment,
         });
-      } catch {
-        // Deployment might not exist, that's fine
+        // Destroy was accepted — redirect to progress page so user can monitor
+        toast.success(
+          'Infrastructure destroy started. The configuration will be available for deletion once the destroy completes.',
+        );
+        setShowDeleteWarning(false);
+        router.push(
+          `/deployments/progress?customerId=${encodeURIComponent(config.customer_id)}&environment=${encodeURIComponent(config.environment)}`,
+        );
+        return;
+      } catch (destroyErr) {
+        // Check if it's an "already destroyed" or "not found" error — safe to delete config
+        const msg = destroyErr instanceof Error ? destroyErr.message : '';
+        const isAlreadyGone =
+          msg.includes('already been destroyed') ||
+          msg.includes('not found') ||
+          msg.includes('ALREADY_DESTROYED') ||
+          msg.includes('DEPLOYMENT_NOT_FOUND');
+
+        if (!isAlreadyGone) {
+          // Real error (e.g., deployment is in progress) — surface it
+          throw destroyErr;
+        }
       }
-      // Delete the config
+
+      // Step 2: No active deployment — safe to delete config
       await deleteConfig.mutateAsync(config.customer_id);
-      toast.success('Cluster and configuration deleted.');
+      toast.success('Configuration deleted.');
       setShowDeleteWarning(false);
       router.push('/dashboard');
     } catch (err) {
