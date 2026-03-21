@@ -224,7 +224,7 @@ export default function DeploymentProgressPage() {
   }, [stages]);
 
   const completedCount = stages.filter((s) => s.status === 'completed').length;
-  const overallProgress = isFailed ? 100 : Math.round((completedCount / stages.length) * 100);
+  const overallProgress = Math.round((completedCount / stages.length) * 100);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -314,8 +314,8 @@ export default function DeploymentProgressPage() {
                 <span className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
                   Progress
                 </span>
-                <span className='text-sm font-semibold text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
-                  {overallProgress}%
+                <span className={`text-sm font-semibold ${isFailed ? 'text-red-400' : 'text-white'}`} style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                  {isFailed ? 'Failed' : `${overallProgress}%`}
                 </span>
               </div>
 
@@ -514,14 +514,23 @@ export default function DeploymentProgressPage() {
               Go to Dashboard
             </button>
             {!isDestroy && (
-              <button
-                onClick={handleRetry}
-                disabled={retryDeploy.isPending}
-                className='rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
-                style={{ fontFamily: 'Satoshi, sans-serif' }}
-              >
-                {retryDeploy.isPending ? 'Retrying...' : 'Retry Deployment'}
-              </button>
+              <>
+                <button
+                  onClick={() => router.push(`/deployments/new?customerId=${encodeURIComponent(customerId || '')}`)}
+                  className='rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors hover:text-white'
+                  style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  Edit Configuration
+                </button>
+                <button
+                  onClick={handleRetry}
+                  disabled={retryDeploy.isPending}
+                  className='rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
+                  style={{ fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  {retryDeploy.isPending ? 'Retrying...' : 'Retry Deployment'}
+                </button>
+              </>
             )}
           </>
         ) : (
