@@ -1,6 +1,6 @@
 'use client';
 
-import { Rocket, RefreshCw, Loader2, AlertCircle } from 'lucide-react';
+import { Rocket, RefreshCw, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { EmptyDeployment } from '@/components/dashboard/EmptyDeployment';
 import { DeploymentOverview } from '@/components/dashboard/DeploymentOverview';
@@ -9,7 +9,7 @@ import { useAllDeployments, useDeploymentStatus } from '@/hooks/use-deployment';
 import { DeploymentStatus } from '@/types/deployment.types';
 import type { CustomerConfigResponse, CustomerDeployment } from '@/types/deployment.types';
 
-type DeploymentState = 'live' | 'deploying' | 'destroying' | 'failed' | 'continue';
+type DeploymentState = 'live' | 'deploying' | 'destroying' | 'deploy-failed' | 'destroy-failed' | 'continue';
 
 function getDeploymentState(deployment: CustomerDeployment | undefined): DeploymentState {
   if (!deployment) return 'continue';
@@ -19,8 +19,12 @@ function getDeploymentState(deployment: CustomerDeployment | undefined): Deploym
       return 'deploying';
     case DeploymentStatus.SUCCEEDED:
       return 'live';
-    case DeploymentStatus.FAILED:
-      return 'failed';
+    case DeploymentStatus.FAILED: {
+      // Distinguish deploy failure from destroy failure
+      const msg = deployment.error_message?.toLowerCase() ?? '';
+      if (msg.includes('destroy')) return 'destroy-failed';
+      return 'deploy-failed';
+    }
     case DeploymentStatus.DESTROYING:
       return 'destroying';
     case DeploymentStatus.DESTROYED:
@@ -61,14 +65,24 @@ function StatusBadge({ state }: { state: DeploymentState }) {
           Destroying
         </span>
       );
-    case 'failed':
+    case 'deploy-failed':
       return (
         <span
           className='flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-red-400'
           style={{ background: 'rgba(239, 68, 68, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
         >
           <AlertCircle className='h-3 w-3' />
-          Failed
+          Deploy Failed
+        </span>
+      );
+    case 'destroy-failed':
+      return (
+        <span
+          className='flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-red-400'
+          style={{ background: 'rgba(239, 68, 68, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
+        >
+          <AlertCircle className='h-3 w-3' />
+          Destroy Failed
         </span>
       );
     case 'continue':
@@ -104,7 +118,7 @@ function DeploymentCard({
                 cx='14'
                 cy='14'
                 r='4'
-                fill={state === 'live' ? '#00CF23' : state === 'failed' ? '#EF4444' : '#A7A7A7'}
+                fill={state === 'live' ? '#00CF23' : (state === 'deploy-failed' || state === 'destroy-failed') ? '#EF4444' : state === 'deploying' || state === 'destroying' ? '#FBBF24' : '#A7A7A7'}
               />
             </svg>
           </div>
@@ -140,15 +154,45 @@ function DeploymentCard({
             View Progress
           </Link>
         )}
-        {state === 'failed' && (
-          <Link
-            href={`/deployments/new?customerId=${encodeURIComponent(config.customer_id)}`}
-            className='flex items-center gap-2 rounded-lg bg-[#FF4400] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#E63D00]'
-            style={{ fontFamily: 'Satoshi, sans-serif' }}
-          >
-            <Rocket className='h-3.5 w-3.5' />
-            Retry
-          </Link>
+        {state === 'deploy-failed' && (
+          <div className='flex items-center gap-2'>
+            <Link
+              href={`/deployments/progress?customerId=${encodeURIComponent(config.customer_id)}&environment=${encodeURIComponent(config.environment)}`}
+              className='flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+              style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+            >
+              <AlertCircle className='h-3.5 w-3.5' />
+              Logs
+            </Link>
+            <Link
+              href={`/deployments/new?customerId=${encodeURIComponent(config.customer_id)}`}
+              className='flex items-center gap-2 rounded-lg bg-[#FF4400] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#E63D00]'
+              style={{ fontFamily: 'Satoshi, sans-serif' }}
+            >
+              <Rocket className='h-3.5 w-3.5' />
+              Retry Deploy
+            </Link>
+          </div>
+        )}
+        {state === 'destroy-failed' && (
+          <div className='flex items-center gap-2'>
+            <Link
+              href={`/deployments/progress?customerId=${encodeURIComponent(config.customer_id)}&environment=${encodeURIComponent(config.environment)}`}
+              className='flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+              style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+            >
+              <AlertCircle className='h-3.5 w-3.5' />
+              Logs
+            </Link>
+            <Link
+              href='/settings'
+              className='flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700'
+              style={{ fontFamily: 'Satoshi, sans-serif' }}
+            >
+              <Trash2 className='h-3.5 w-3.5' />
+              Retry Destroy
+            </Link>
+          </div>
         )}
         {state === 'continue' && (
           <Link
@@ -170,13 +214,15 @@ function DeploymentCard({
       </div>
 
       {/* Error message for failed deployments */}
-      {state === 'failed' && deployment?.error_message && (
+      {(state === 'deploy-failed' || state === 'destroy-failed') && (
         <div
           className='rounded-lg p-3'
           style={{ background: 'rgba(239, 68, 68, 0.08)', border: '0.5px solid rgba(239, 68, 68, 0.3)' }}
         >
           <p className='text-sm text-red-400' style={{ fontFamily: 'Satoshi, sans-serif' }}>
-            {deployment.error_message}
+            {state === 'destroy-failed'
+              ? 'Infrastructure destroy failed. Retry from Settings.'
+              : 'Deployment failed. Retry or edit your configuration.'}
           </p>
         </div>
       )}
@@ -244,7 +290,7 @@ export default function DashboardPage() {
       customerId: firstConfig.customer_id,
       environment: firstConfig.environment === 'prod' ? 'Production' : firstConfig.environment === 'staging' ? 'Staging' : 'Development',
       rawEnvironment: firstConfig.environment,
-      status: (state === 'live' ? 'live' : 'not-deployed') as 'live' | 'not-deployed',
+      status: state,
       awsRegion: firstConfig.aws_region ?? 'us-east-1',
       domain: firstConfig.domain ?? '',
       kubernetesVersion: firstConfig.eks_config?.version ?? '1.34',
@@ -265,15 +311,62 @@ export default function DashboardPage() {
                 <RefreshCw className='h-4 w-4' />
                 Redeploy
               </Link>
-            ) : state === 'deploying' || state === 'destroying' ? (
+            ) : state === 'deploying' ? (
               <Link
                 href={`/deployments/progress?customerId=${encodeURIComponent(firstConfig.customer_id)}&environment=${encodeURIComponent(firstConfig.environment)}`}
                 className='flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-700'
                 style={{ fontFamily: 'Satoshi, sans-serif' }}
               >
                 <Loader2 className='h-4 w-4 animate-spin' />
-                View Progress
+                Deploying...
               </Link>
+            ) : state === 'destroying' ? (
+              <Link
+                href={`/deployments/progress?customerId=${encodeURIComponent(firstConfig.customer_id)}&environment=${encodeURIComponent(firstConfig.environment)}`}
+                className='flex items-center gap-2 rounded-lg bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700'
+                style={{ fontFamily: 'Satoshi, sans-serif' }}
+              >
+                <Loader2 className='h-4 w-4 animate-spin' />
+                Destroying...
+              </Link>
+            ) : state === 'deploy-failed' ? (
+              <div className='flex items-center gap-2'>
+                <Link
+                  href={`/deployments/progress?customerId=${encodeURIComponent(firstConfig.customer_id)}&environment=${encodeURIComponent(firstConfig.environment)}`}
+                  className='flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+                  style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  <AlertCircle className='h-4 w-4' />
+                  View Logs
+                </Link>
+                <Link
+                  href={`/deployments/new?customerId=${encodeURIComponent(firstConfig.customer_id)}`}
+                  className='flex items-center gap-2 rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00]'
+                  style={{ fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  <Rocket className='h-4 w-4' />
+                  Retry Deployment
+                </Link>
+              </div>
+            ) : state === 'destroy-failed' ? (
+              <div className='flex items-center gap-2'>
+                <Link
+                  href={`/deployments/progress?customerId=${encodeURIComponent(firstConfig.customer_id)}&environment=${encodeURIComponent(firstConfig.environment)}`}
+                  className='flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+                  style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  <AlertCircle className='h-4 w-4' />
+                  View Logs
+                </Link>
+                <Link
+                  href={`/settings`}
+                  className='flex items-center gap-2 rounded-lg bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700'
+                  style={{ fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  <Trash2 className='h-4 w-4' />
+                  Retry Destroy
+                </Link>
+              </div>
             ) : (
               <Link
                 href={`/deployments/new?customerId=${encodeURIComponent(firstConfig.customer_id)}`}
@@ -281,12 +374,12 @@ export default function DashboardPage() {
                 style={{ fontFamily: 'Satoshi, sans-serif' }}
               >
                 <Rocket className='h-4 w-4' />
-                {state === 'failed' ? 'Retry Deployment' : 'Continue Deployment'}
+                Deploy
               </Link>
             )
           }
         />
-        {state === 'failed' && dep?.error_message && (
+        {(state === 'deploy-failed' || state === 'destroy-failed') && (
           <div
             className='rounded-lg p-4'
             style={{ background: 'rgba(239, 68, 68, 0.08)', border: '0.5px solid rgba(239, 68, 68, 0.3)' }}
@@ -294,7 +387,9 @@ export default function DashboardPage() {
             <div className='flex items-start gap-2'>
               <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-red-400' />
               <p className='text-sm text-red-400' style={{ fontFamily: 'Satoshi, sans-serif' }}>
-                {dep.error_message}
+                {state === 'destroy-failed'
+                  ? 'Infrastructure destroy failed. You can retry from Settings or view the logs for details.'
+                  : 'Deployment failed. You can retry or edit your configuration and try again.'}
               </p>
             </div>
           </div>

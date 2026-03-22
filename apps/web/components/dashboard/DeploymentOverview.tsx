@@ -8,7 +8,7 @@ interface DeploymentInfo {
   customerId: string;
   environment: string;
   rawEnvironment: string;
-  status: 'live' | 'not-deployed';
+  status: 'live' | 'not-deployed' | 'deploying' | 'destroying' | 'failed' | 'deploy-failed' | 'destroy-failed' | 'continue';
   awsRegion: string;
   domain: string;
   kubernetesVersion: string;
@@ -30,6 +30,9 @@ const deploySteps = [
 
 export function DeploymentOverview({ deployment }: DeploymentOverviewProps) {
   const isLive = deployment.status === 'live';
+  const isFailed = deployment.status === 'failed' || deployment.status === 'deploy-failed' || deployment.status === 'destroy-failed';
+  const isActive = deployment.status === 'deploying' || deployment.status === 'destroying';
+  const statusColor = isLive ? '#00CF23' : isFailed ? '#EF4444' : isActive ? '#FBBF24' : '#A7A7A7';
 
   const { data: ssmData } = useSsmSession(
     isLive ? deployment.customerId : null,
@@ -46,9 +49,9 @@ export function DeploymentOverview({ deployment }: DeploymentOverviewProps) {
           {/* Signal icon */}
           <div className='flex h-10 w-10 items-center justify-center'>
             <svg width='28' height='28' viewBox='0 0 28 28' fill='none'>
-              <circle cx='14' cy='14' r='4' fill={isLive ? '#00CF23' : '#A7A7A7'} />
-              <path d='M8 8a8.5 8.5 0 0 1 12 0' stroke={isLive ? '#00CF23' : '#A7A7A7'} strokeWidth='1.5' strokeLinecap='round' fill='none' />
-              <path d='M5 5a13 13 0 0 1 18 0' stroke={isLive ? '#00CF23' : '#A7A7A7'} strokeWidth='1.5' strokeLinecap='round' fill='none' opacity='0.5' />
+              <circle cx='14' cy='14' r='4' fill={statusColor} />
+              <path d='M8 8a8.5 8.5 0 0 1 12 0' stroke={statusColor} strokeWidth='1.5' strokeLinecap='round' fill='none' />
+              <path d='M5 5a13 13 0 0 1 18 0' stroke={statusColor} strokeWidth='1.5' strokeLinecap='round' fill='none' opacity='0.5' />
             </svg>
           </div>
           <div className='flex flex-col'>
@@ -56,14 +59,55 @@ export function DeploymentOverview({ deployment }: DeploymentOverviewProps) {
               {deployment.customerId}
             </span>
             <div className='flex items-center gap-2'>
-              {isLive ? (
+              {deployment.status === 'live' && (
                 <span
                   className='rounded px-1.5 py-0.5 text-xs font-medium text-[#00CF23]'
                   style={{ background: 'rgba(0, 207, 35, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
                 >
                   Live
                 </span>
-              ) : (
+              )}
+              {deployment.status === 'deploying' && (
+                <span
+                  className='rounded px-1.5 py-0.5 text-xs font-medium text-amber-400'
+                  style={{ background: 'rgba(251, 191, 36, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  Deploying
+                </span>
+              )}
+              {deployment.status === 'destroying' && (
+                <span
+                  className='rounded px-1.5 py-0.5 text-xs font-medium text-red-400'
+                  style={{ background: 'rgba(239, 68, 68, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  Destroying
+                </span>
+              )}
+              {deployment.status === 'deploy-failed' && (
+                <span
+                  className='rounded px-1.5 py-0.5 text-xs font-medium text-red-400'
+                  style={{ background: 'rgba(239, 68, 68, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  Deploy Failed
+                </span>
+              )}
+              {deployment.status === 'destroy-failed' && (
+                <span
+                  className='rounded px-1.5 py-0.5 text-xs font-medium text-red-400'
+                  style={{ background: 'rgba(239, 68, 68, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  Destroy Failed
+                </span>
+              )}
+              {deployment.status === 'failed' && (
+                <span
+                  className='rounded px-1.5 py-0.5 text-xs font-medium text-red-400'
+                  style={{ background: 'rgba(239, 68, 68, 0.15)', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  Failed
+                </span>
+              )}
+              {(deployment.status === 'not-deployed' || deployment.status === 'continue') && (
                 <span className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
                   Not Deployed
                 </span>

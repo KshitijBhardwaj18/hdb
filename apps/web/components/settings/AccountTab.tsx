@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfigs, useDeleteConfig } from '@/hooks/use-deployment-config';
-import { useDestroy } from '@/hooks/use-deployment';
+import { useDestroy, useDeploymentStatus } from '@/hooks/use-deployment';
+import { DeploymentStatus } from '@/types/deployment.types';
 import { ApiClient } from '@/lib/api-client';
 
 export function AccountTab() {
@@ -81,6 +82,13 @@ export function AccountTab() {
   const router = useRouter();
   const { data: configs } = useConfigs();
   const config = configs?.[0];
+  const { data: deployment } = useDeploymentStatus(
+    config?.customer_id ?? null,
+    config?.environment ?? null,
+  );
+  const isOperationActive = deployment?.status === DeploymentStatus.PENDING
+    || deployment?.status === DeploymentStatus.IN_PROGRESS
+    || deployment?.status === DeploymentStatus.DESTROYING;
   const deleteConfig = useDeleteConfig();
   const destroyMutation = useDestroy();
   const [showDeleteWarning, setShowDeleteWarning] = useState(false);
@@ -317,10 +325,12 @@ export function AccountTab() {
             {!showDeleteWarning && (
               <button
                 onClick={() => setShowDeleteWarning(true)}
-                className='flex-shrink-0 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700'
+                disabled={isOperationActive}
+                className='flex-shrink-0 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40'
                 style={{ fontFamily: 'Satoshi, sans-serif' }}
+                title={isOperationActive ? 'Cannot delete while a deployment or destroy is in progress' : undefined}
               >
-                Delete Cluster
+                {isOperationActive ? 'Operation In Progress...' : 'Delete Cluster'}
               </button>
             )}
           </div>

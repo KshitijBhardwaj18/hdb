@@ -237,13 +237,36 @@ class Database:
 
         current_status = DeploymentStatus(existing["status"])
 
-        # Block if already in progress or destroying
-        if current_status == DeploymentStatus.IN_PROGRESS:
-            return None, "DEPLOYMENT_IN_PROGRESS"
-        if current_status == DeploymentStatus.DESTROYING:
-            return None, "DEPLOYMENT_DESTROYING"
-        if current_status == DeploymentStatus.PENDING:
-            return None, "DEPLOYMENT_IN_PROGRESS"
+        # Block if already in progress or destroying — UNLESS the lock has expired
+        # (meaning the worker crashed and the deployment is stale).
+        if current_status in (
+            DeploymentStatus.IN_PROGRESS,
+            DeploymentStatus.PENDING,
+            DeploymentStatus.DESTROYING,
+        ):
+            lock = self._locks.find_one({"stack_name": stack_name})
+            if lock is not None:
+                # Lock still held → worker is alive, block the new deploy
+                if current_status == DeploymentStatus.DESTROYING:
+                    return None, "DEPLOYMENT_DESTROYING"
+                return None, "DEPLOYMENT_IN_PROGRESS"
+            # Lock expired → worker died. Reset to FAILED so we can redeploy.
+            logger.warning(
+                "Stale deployment detected for %s (status=%s, no lock). Resetting to FAILED.",
+                stack_name,
+                current_status.value,
+            )
+            self._deployments.update_one(
+                {"stack_name": stack_name, "user_id": user_id},
+                {
+                    "$set": {
+                        "status": DeploymentStatus.FAILED.value,
+                        "error_message": "Deployment was interrupted (worker crashed or timed out)",
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+            # Fall through to the redeploy logic below
 
         # Atomically set to PENDING only if still in a deployable state
         deployable_states = [
@@ -305,14 +328,46 @@ class Database:
         if not existing:
             return None, "DEPLOYMENT_NOT_FOUND"
         current = existing["status"]
-        if current == DeploymentStatus.IN_PROGRESS.value:
+
+        # If stuck in an active state but lock expired → worker died, reset to FAILED
+        if current in (
+            DeploymentStatus.IN_PROGRESS.value,
+            DeploymentStatus.PENDING.value,
+            DeploymentStatus.DESTROYING.value,
+        ):
+            lock = self._locks.find_one({"stack_name": stack_name})
+            if lock is None:
+                logger.warning(
+                    "Stale deployment detected for %s (status=%s, no lock). Resetting to FAILED.",
+                    stack_name,
+                    current,
+                )
+                self._deployments.update_one(
+                    {"stack_name": stack_name, "user_id": user_id},
+                    {
+                        "$set": {
+                            "status": DeploymentStatus.FAILED.value,
+                            "error_message": "Operation was interrupted (worker crashed or timed out)",
+                            "updated_at": datetime.now(timezone.utc),
+                        }
+                    },
+                )
+                # Now it's FAILED → destroyable. Re-run the atomic update.
+                result = self._deployments.find_one_and_update(
+                    {"stack_name": stack_name, "user_id": user_id, "status": DeploymentStatus.FAILED.value},
+                    {"$set": {"status": DeploymentStatus.DESTROYING.value, "updated_at": datetime.now(timezone.utc)}},
+                    return_document=True,
+                )
+                if result:
+                    result["status"] = DeploymentStatus(result["status"])
+                    return result, ""
+            # Lock still held → worker is alive
+            if current == DeploymentStatus.DESTROYING.value:
+                return None, "DEPLOYMENT_DESTROYING"
             return None, "DEPLOYMENT_IN_PROGRESS"
-        if current == DeploymentStatus.DESTROYING.value:
-            return None, "DEPLOYMENT_DESTROYING"
+
         if current == DeploymentStatus.DESTROYED.value:
             return None, "ALREADY_DESTROYED"
-        if current == DeploymentStatus.PENDING.value:
-            return None, "DEPLOYMENT_IN_PROGRESS"
         return None, f"Cannot destroy: current status is {current}"
 
     # ------------------------------------------------------------------
