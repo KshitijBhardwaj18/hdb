@@ -228,6 +228,58 @@ def provision_atlas_cluster(
     else:
         container_id = _get_container_id(mongo_config.atlas_project_id)
 
+    # Clean up stale VPC peerings with overlapping CIDRs from previous failed deployments
+    def _cleanup_stale_peerings(pid: str) -> None:
+        try:
+            peerings = atlas.get_network_peerings(
+                project_id=pid,
+                opts=pulumi.InvokeOptions(provider=atlas_provider),
+            )
+            for p in peerings.results:
+                if p.route_table_cidr_block == vpc_cidr:
+                    pulumi.log.warn(
+                        f"Found stale peering {p.id} with CIDR {vpc_cidr} "
+                        f"(status: {p.status_name}). Deleting via Atlas API..."
+                    )
+                    # Delete stale peering via Atlas API directly
+                    import urllib.request
+                    import urllib.parse
+                    import json
+                    import base64
+
+                    token_data = urllib.parse.urlencode({"grant_type": "client_credentials"}).encode()
+                    creds = base64.b64encode(
+                        f"{mongo_config.atlas_client_id}:{mongo_config.atlas_client_secret}".encode()
+                    ).decode()
+                    token_req = urllib.request.Request(
+                        "https://cloud.mongodb.com/api/oauth/token", data=token_data
+                    )
+                    token_req.add_header("Content-Type", "application/x-www-form-urlencoded")
+                    token_req.add_header("Authorization", f"Basic {creds}")
+                    token_resp = json.loads(urllib.request.urlopen(token_req).read())
+                    access_token = token_resp["access_token"]
+
+                    del_req = urllib.request.Request(
+                        f"https://cloud.mongodb.com/api/atlas/v2/groups/{pid}/peers/{p.id}",
+                        method="DELETE",
+                    )
+                    del_req.add_header("Authorization", f"Bearer {access_token}")
+                    del_req.add_header("Accept", "application/vnd.atlas.2023-01-01+json")
+                    try:
+                        urllib.request.urlopen(del_req)
+                        pulumi.log.info(f"Deleted stale peering {p.id}")
+                    except Exception as del_err:
+                        pulumi.log.warn(f"Could not delete stale peering {p.id}: {del_err}")
+        except Exception as e:
+            pulumi.log.warn(f"Could not check for stale peerings: {e}")
+
+    if mongo_config.mode == "atlas":
+        pulumi.Output.all(cluster.id, project_id).apply(
+            lambda args: _cleanup_stale_peerings(args[1])
+        )
+    else:
+        _cleanup_stale_peerings(mongo_config.atlas_project_id)
+
     # Create peering from Atlas side
     peering = atlas.NetworkPeering(
         f"{customer_id}-atlas-vpc-peering",

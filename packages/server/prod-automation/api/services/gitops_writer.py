@@ -470,6 +470,9 @@ spec:
     path: prod/clickhouse/helm/clickhouse-chart
     helm:
       releaseName: clickhouse
+      valuesObject:
+        ingress:
+          host: clickhouse.hydradb.{self.domain}
   destination:
     server: https://kubernetes.default.svc
     namespace: clickhouse

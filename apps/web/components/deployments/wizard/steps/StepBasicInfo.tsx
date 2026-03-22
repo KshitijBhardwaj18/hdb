@@ -138,7 +138,7 @@ export function StepBasicInfo() {
           <input
             type="text"
             {...register('domainName')}
-            placeholder="e.g. usecortex.opengig.work"
+            placeholder="e.g. example.com"
             className={inputClassName}
             style={font}
           />
@@ -146,7 +146,7 @@ export function StepBasicInfo() {
             <p className={errorClassName}>{errors.domainName.message}</p>
           ) : (
             <p className={hintClassName}>
-              Primary domain for accessing your deployment
+              Services will be accessible at *.hydradb.your-domain (e.g. dashboard.hydradb.example.com)
             </p>
           )}
         </div>

@@ -102,7 +102,7 @@ export const DEFAULT_FORM_DATA: DeploymentFormData = {
   atlasOrgId: '',
   atlasProjectName: '',
   mongoDbTier: 'M10',
-  mongoDbUsername: 'cortex',
+  mongoDbUsername: '',
   mongoDbPassword: '',
   atlasProjectId: '',
   atlasClusterName: '',
