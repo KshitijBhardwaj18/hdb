@@ -204,11 +204,11 @@ export function StepAddons() {
               <input
                 type="text"
                 {...register('atlasProjectName')}
-                placeholder={customerId ? `${customerId}-cortex` : 'customer-id-cortex'}
+                placeholder={customerId ? `${customerId}-hydradb` : 'customer-id-hydradb'}
                 className={inputClassName}
                 style={font}
               />
-              <p className={hintClassName}>Defaults to {customerId ? `${customerId}-cortex` : '{customer-id}-cortex'} if left empty</p>
+              <p className={hintClassName}>Defaults to {customerId ? `${customerId}-hydradb` : '{customer-id}-hydradb'} if left empty</p>
             </div>
 
             {/* Tier */}
@@ -235,7 +235,7 @@ export function StepAddons() {
                 <input
                   type="text"
                   {...register('mongoDbUsername')}
-                  placeholder="cortex"
+                  placeholder="e.g. admin"
                   className={inputClassName}
                   style={font}
                 />

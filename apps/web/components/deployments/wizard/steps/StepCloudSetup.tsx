@@ -120,7 +120,7 @@ function SetupInstructions() {
             <li className="flex gap-3">
               <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#FF4400]/15 text-xs font-medium text-[#FF4400]">6</span>
               <span>
-                Name the role (e.g. <code className="rounded bg-[#2A2A2A] px-1.5 py-0.5 text-[#FF4400]">cortex-deploy-role</code>) and create it
+                Name the role (e.g. <code className="rounded bg-[#2A2A2A] px-1.5 py-0.5 text-[#FF4400]">hydradb-deploy-role</code>) and create it
               </span>
             </li>
             <li className="flex gap-3">
@@ -281,7 +281,7 @@ export function StepCloudSetup() {
                 testConnection.reset();
               },
             })}
-            placeholder="arn:aws:iam::123456789012:role/cortex-deploy-role"
+            placeholder="arn:aws:iam::123456789012:role/hydradb-deploy-role"
             className={inputClassName}
             style={font}
           />
