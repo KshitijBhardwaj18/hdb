@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 import { useFormContext } from 'react-hook-form';
+import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { useTestAtlasConnection } from '@/hooks/use-aws-connection';
 import type { DeploymentFormData } from '../types';
 
 const inputClassName =
@@ -30,9 +33,10 @@ function SelectChevron() {
 }
 
 export function StepAddons() {
-  const { register, watch, setValue, formState: { errors } } = useFormContext<DeploymentFormData>();
+  const { register, watch, setValue, getValues, formState: { errors } } = useFormContext<DeploymentFormData>();
   const [showPassword, setShowPassword] = useState(false);
   const [showKafkaPassword, setShowKafkaPassword] = useState(false);
+  const testAtlas = useTestAtlasConnection();
 
   const mongoDbMode = watch('mongoDbMode');
   const kafkaSource = watch('kafkaSource');
@@ -131,6 +135,68 @@ export function StepAddons() {
                 style={font}
               />
               {errors.atlasOrgId && <p className={errorClassName}>{errors.atlasOrgId.message}</p>}
+            </div>
+
+            {/* Test Atlas Connection */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const clientId = getValues('atlasClientId');
+                    const clientSecret = getValues('atlasClientSecret');
+                    const orgId = getValues('atlasOrgId');
+                    if (!clientId || !clientSecret || !orgId) {
+                      toast.error('Please fill in Atlas Client ID, Client Secret, and Organization ID first.');
+                      return;
+                    }
+                    testAtlas.mutate({
+                      atlas_client_id: clientId,
+                      atlas_client_secret: clientSecret,
+                      atlas_org_id: orgId,
+                    });
+                  }}
+                  disabled={testAtlas.isPending}
+                  className="flex items-center gap-2 rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={font}
+                >
+                  {testAtlas.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    'Test Atlas Connection'
+                  )}
+                </button>
+
+                {testAtlas.isSuccess && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span style={font}>Connected to {testAtlas.data.org_name}</span>
+                  </div>
+                )}
+
+                {testAtlas.isError && !testAtlas.isPending && (
+                  <div className="flex items-center gap-2 text-sm text-red-400">
+                    <XCircle className="h-4 w-4" />
+                    <span style={font}>Connection failed</span>
+                  </div>
+                )}
+              </div>
+
+              {testAtlas.isError && !testAtlas.isPending && (
+                <div
+                  className="rounded-lg px-4 py-3"
+                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '0.5px solid rgba(239, 68, 68, 0.3)' }}
+                >
+                  <p className="text-xs text-red-400" style={font}>
+                    {testAtlas.error instanceof Error
+                      ? testAtlas.error.message
+                      : 'Check your Atlas Client ID, Client Secret, and Organization ID.'}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">

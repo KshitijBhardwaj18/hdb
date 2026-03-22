@@ -120,3 +120,96 @@ async def test_connection(
     except Exception as e:
         logger.exception("Unexpected error during AWS connection test")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Atlas connection test
+# ---------------------------------------------------------------------------
+
+
+class TestAtlasRequest(BaseModel):
+    atlas_client_id: str = Field(..., description="Atlas Service Account client ID")
+    atlas_client_secret: str = Field(..., description="Atlas Service Account client secret")
+    atlas_org_id: str = Field(..., description="Atlas Organization ID")
+
+
+class TestAtlasSuccess(BaseModel):
+    status: str = "connected"
+    org_name: str
+    project_count: int
+
+
+@router.post(
+    "/test-atlas-connection",
+    response_model=TestAtlasSuccess,
+    responses={403: {"model": TestConnectionFailure}},
+    summary="Test MongoDB Atlas credentials",
+)
+async def test_atlas_connection(
+    request: TestAtlasRequest,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    """Test Atlas Service Account credentials by listing projects in the org."""
+    import urllib.request
+    import urllib.parse
+    import json
+    import base64
+
+    try:
+        # Get OAuth2 token
+        token_data = urllib.parse.urlencode({"grant_type": "client_credentials"}).encode()
+        creds = base64.b64encode(
+            f"{request.atlas_client_id}:{request.atlas_client_secret}".encode()
+        ).decode()
+
+        token_req = urllib.request.Request(
+            "https://cloud.mongodb.com/api/oauth/token", data=token_data
+        )
+        token_req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        token_req.add_header("Authorization", f"Basic {creds}")
+
+        token_resp = json.loads(urllib.request.urlopen(token_req).read())
+        access_token = token_resp["access_token"]
+
+        # Verify org access
+        org_req = urllib.request.Request(
+            f"https://cloud.mongodb.com/api/atlas/v2/orgs/{request.atlas_org_id}"
+        )
+        org_req.add_header("Authorization", f"Bearer {access_token}")
+        org_req.add_header("Accept", "application/vnd.atlas.2023-01-01+json")
+
+        org_resp = json.loads(urllib.request.urlopen(org_req).read())
+        org_name = org_resp.get("name", "Unknown")
+
+        # Count projects
+        projects_req = urllib.request.Request(
+            "https://cloud.mongodb.com/api/atlas/v2/groups?itemsPerPage=1"
+        )
+        projects_req.add_header("Authorization", f"Bearer {access_token}")
+        projects_req.add_header("Accept", "application/vnd.atlas.2023-01-01+json")
+
+        projects_resp = json.loads(urllib.request.urlopen(projects_req).read())
+        project_count = projects_resp.get("totalCount", 0)
+
+        return TestAtlasSuccess(
+            status="connected",
+            org_name=org_name,
+            project_count=project_count,
+        )
+
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        logger.warning("Atlas connection test failed: %s %s", e.code, body)
+        if e.code == 401:
+            detail = "Invalid credentials — check client ID and secret"
+        elif e.code == 403:
+            detail = "Access denied — check Service Account permissions"
+        elif e.code == 404:
+            detail = "Organization not found — check Organization ID"
+        else:
+            detail = f"Atlas API error ({e.code}): {body[:200]}"
+        raise HTTPException(status_code=403, detail=detail)
+
+    except Exception as e:
+        logger.exception("Unexpected error during Atlas connection test")
+        raise HTTPException(status_code=500, detail=str(e))

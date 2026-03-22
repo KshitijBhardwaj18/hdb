@@ -64,6 +64,50 @@ export default function DeploymentCompletePage() {
           <span className='text-sm text-white'>Time Elapsed : {elapsedDisplay}</span>
         </div>
 
+        {/* Post-deploy DNS instructions */}
+        {!destroyed && (
+          <div
+            className='mb-8 w-full rounded-lg p-5'
+            style={{ backgroundColor: '#1A1A1A', border: '0.5px solid #5B5B5B' }}
+          >
+            <h3
+              className='mb-3 text-sm font-semibold text-white'
+              style={{ fontFamily: 'Satoshi, sans-serif' }}
+            >
+              Next Steps: Configure DNS
+            </h3>
+            <p
+              className='mb-3 text-sm text-[#A7A7A7]'
+              style={{ fontFamily: 'Satoshi, sans-serif' }}
+            >
+              Create a wildcard CNAME record pointing to your cluster&apos;s load balancer to enable all services.
+            </p>
+            <div
+              className='rounded-lg bg-[#202020] p-4'
+              style={{ border: '0.5px solid #333', fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              <p className='mb-2 text-xs text-[#A7A7A7]'>DNS Record:</p>
+              <p className='text-sm text-[#00CF23]'>
+                *.hydradb.{'<your-domain>'}  CNAME  {'<NLB-address>'}
+              </p>
+              <p className='mb-1 mt-3 text-xs text-[#A7A7A7]'>This will enable:</p>
+              <div className='flex flex-col gap-0.5 text-xs text-[#A7A7A7]'>
+                <span>dashboard.hydradb.{'<your-domain>'}</span>
+                <span>cortex-app.hydradb.{'<your-domain>'}</span>
+                <span>argocd.hydradb.{'<your-domain>'}</span>
+                <span>grafana.hydradb.{'<your-domain>'}</span>
+                <span>and all other services...</span>
+              </div>
+            </div>
+            <p
+              className='mt-3 text-xs text-[#A7A7A7]'
+              style={{ fontFamily: 'Satoshi, sans-serif' }}
+            >
+              The NLB address can be found in your AWS Console under EC2 → Load Balancers, or in the deployment details on your dashboard.
+            </p>
+          </div>
+        )}
+
         {/* Action buttons */}
         <div className='flex items-center gap-3'>
           <Link

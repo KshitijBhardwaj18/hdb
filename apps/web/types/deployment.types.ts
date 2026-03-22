@@ -303,6 +303,20 @@ export interface AwsTestConnectionFailure {
   error: string;
 }
 
+// --- Atlas Connection Test ---
+
+export interface AtlasTestConnectionRequest {
+  atlas_client_id: string;
+  atlas_client_secret: string;
+  atlas_org_id: string;
+}
+
+export interface AtlasTestConnectionSuccess {
+  status: string;
+  org_name: string;
+  project_count: number;
+}
+
 export type AwsTestConnectionResponse = AwsTestConnectionSuccess | AwsTestConnectionFailure;
 
 export interface ValidationErrorDetail {
