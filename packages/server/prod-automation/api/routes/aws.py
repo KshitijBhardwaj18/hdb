@@ -2,6 +2,8 @@
 
 import logging
 import urllib.error
+import urllib.parse
+import urllib.request
 
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
