@@ -1,6 +1,7 @@
 """AWS connection testing endpoints."""
 
 import logging
+import urllib.error
 
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
