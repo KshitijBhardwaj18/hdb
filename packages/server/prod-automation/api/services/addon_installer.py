@@ -60,9 +60,9 @@ class AddonInstallerService:
         except (json.JSONDecodeError, TypeError):
             return {}
 
-    def _get_client(self, service: str):
+    def _get_client(self, service: str, force_refresh: bool = False):
         """Get boto3 client with assumed role credentials."""
-        if service in self._clients:
+        if service in self._clients and not force_refresh:
             return self._clients[service]
 
         try:
@@ -71,7 +71,7 @@ class AddonInstallerService:
                 RoleArn=self.config.aws_config.role_arn,
                 ExternalId=self.config.aws_config.external_id,
                 RoleSessionName=f"byoc-addon-{self.customer_id}",
-                DurationSeconds=900,
+                DurationSeconds=3600,
             )
         except NoCredentialsError as e:
             raise ValueError(

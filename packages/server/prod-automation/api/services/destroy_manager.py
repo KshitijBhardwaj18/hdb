@@ -169,18 +169,18 @@ echo "==> Pre-destroy cleanup complete! Safe to run pulumi destroy."
             InstanceIds=[instance_id],
             DocumentName="AWS-RunShellScript",
             Parameters={"commands": script.split("\n")},
-            TimeoutSeconds=900,
+            TimeoutSeconds=600,
             Comment=f"Pre-destroy cleanup for {self.customer_id}-{self.environment}",
         )
 
         command_id = response["Command"]["CommandId"]
         self._save_addon_state("pre-destroy", command_id, instance_id)
 
-        waiter_timeout = 900
+        max_wait = 300  # 5 minutes max — pre-destroy is best-effort
         poll_interval = 15
         elapsed = 0
 
-        while elapsed < waiter_timeout:
+        while elapsed < max_wait:
             time.sleep(poll_interval)
             elapsed += poll_interval
 
@@ -190,7 +190,12 @@ echo "==> Pre-destroy cleanup complete! Safe to run pulumi destroy."
                     InstanceId=instance_id,
                 )
             except ClientError as e:
-                if e.response["Error"]["Code"] == "InvocationDoesNotExist":
+                error_code = e.response["Error"]["Code"]
+                if error_code == "InvocationDoesNotExist":
+                    continue
+                if error_code == "ExpiredTokenException":
+                    logger.warning("STS token expired during pre-destroy polling, refreshing...")
+                    ssm = self._get_client("ssm", force_refresh=True)
                     continue
                 raise
 
@@ -214,12 +219,16 @@ echo "==> Pre-destroy cleanup complete! Safe to run pulumi destroy."
                     error=invocation.get("StandardErrorContent"),
                 )
 
+        logger.warning(
+            "Pre-destroy cleanup timed out after %ds for %s. Proceeding with destroy.",
+            max_wait, f"{self.customer_id}-{self.environment}",
+        )
         return AddonInstallResult(
             addon_name="pre-destroy",
             status=AddonInstallStatus.FAILED,
             ssm_command_id=command_id,
             instance_id=instance_id,
-            error="Timed out waiting for pre-destroy cleanup to complete",
+            error=f"Pre-destroy cleanup timed out after {max_wait}s. Proceeding with destroy.",
         )
 
     async def run_pre_destroy(self) -> AddonInstallResult:
