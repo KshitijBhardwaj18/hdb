@@ -179,11 +179,9 @@ def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: igno
 
         # --- get outputs ---
         outputs = engine.get_outputs(stack_name)
-        db.transition_deployment_status(
+        db.save_deployment_outputs(
             stack_name=stack_name,
-            to_status=DeploymentStatus.SUCCEEDED,
             outputs=json.dumps(outputs),
-            error_message="",
         )
 
         # --- gitops ---
@@ -239,6 +237,12 @@ def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: igno
                 details=str(addon_err),
             )
 
+        db.transition_deployment_status(
+            stack_name=stack_name,
+            to_status=DeploymentStatus.SUCCEEDED,
+            outputs=json.dumps(outputs),
+            error_message="",
+        )
         db.add_event(stack_name, DeploymentEventType.DEPLOY_SUCCEEDED, "Deployment completed successfully")
         db.audit_log("deploy_succeeded", customer_id, environment=environment)
         return {"status": "succeeded", "stack_name": stack_name}

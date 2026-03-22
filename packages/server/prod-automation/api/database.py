@@ -185,6 +185,13 @@ class Database:
             error_message=error_message,
         )
 
+    def save_deployment_outputs(self, stack_name: str, outputs: str) -> None:
+        """Save deployment outputs without changing status."""
+        self._deployments.update_one(
+            {"stack_name": stack_name},
+            {"$set": {"outputs": outputs, "updated_at": datetime.now(timezone.utc)}},
+        )
+
     def update_addon_status(
         self, stack_name: str, addon_status: str
     ) -> Optional[dict[str, Any]]:
