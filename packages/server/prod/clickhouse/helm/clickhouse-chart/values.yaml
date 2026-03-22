@@ -43,7 +43,7 @@ keeper:
 ingress:
   enabled: true
   ingressClassName: nginx-inc
-  host: clickhouse.usecortex.opengig.work
+  host: clickhouse.hydradb.example.com
 
 monitoring:
   enabled: true

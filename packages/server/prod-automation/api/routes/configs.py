@@ -60,6 +60,18 @@ async def create_config(
 ) -> Union[CustomerConfigResponse, JSONResponse]:
     """Create a new customer configuration."""
 
+    # One config per user
+    existing_configs = config_storage.list_by_user(current_user.id)
+    if existing_configs:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ApiErrorResponse(
+                code=ErrorCode.QUOTA_EXCEEDED,
+                message="You already have a deployment configuration. "
+                "Edit your existing configuration or delete it first from Settings.",
+            ).model_dump(),
+        )
+
     if config_storage.exists(current_user.id, request.customer_id):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

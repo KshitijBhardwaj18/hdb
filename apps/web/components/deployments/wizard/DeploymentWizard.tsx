@@ -34,7 +34,8 @@ function loadDraft(): Partial<DeploymentFormData> | null {
 
 function saveDraft(data: DeploymentFormData) {
   try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+    const { atlasClientSecret, mongoDbPassword, kafkaPassword, ...safeDraft } = data;
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(safeDraft));
   } catch {
     // storage full or unavailable
   }
@@ -64,6 +65,7 @@ export function DeploymentWizard() {
 
   const [currentStep, setCurrentStep] = useState(1);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [showDeployConfirm, setShowDeployConfirm] = useState(false);
 
   const methods = useForm<DeploymentFormData>({
     defaultValues: DEFAULT_FORM_DATA,
@@ -203,10 +205,19 @@ export function DeploymentWizard() {
       const config = mapFormToConfig(data);
 
       // Create or update config first
-      if (editCustomerId) {
-        await updateConfig.mutateAsync({ customerId: editCustomerId, input: config });
-      } else {
-        await createConfig.mutateAsync(config);
+      try {
+        if (editCustomerId) {
+          await updateConfig.mutateAsync({ customerId: editCustomerId, input: config });
+        } else {
+          await createConfig.mutateAsync(config);
+        }
+      } catch (configErr) {
+        const msg = configErr instanceof Error ? configErr.message : '';
+        if (msg.includes('already exists') || msg.includes('CONFIG_EXISTS') || msg.includes('QUOTA_EXCEEDED')) {
+          await updateConfig.mutateAsync({ customerId: data.customerId, input: config });
+        } else {
+          throw configErr;
+        }
       }
 
       // Then trigger deployment
@@ -299,7 +310,7 @@ export function DeploymentWizard() {
             {isLastStep ? (
               <button
                 type='button'
-                onClick={handleSubmit(handleDeploy, (errors) => {
+                onClick={handleSubmit(() => setShowDeployConfirm(true), (errors) => {
                   console.error('Form validation errors:', errors);
                   const firstError = Object.values(errors)[0];
                   const msg = firstError?.message || firstError?.root?.message || 'Please fix form errors before deploying.';
@@ -326,6 +337,37 @@ export function DeploymentWizard() {
           </div>
         </div>
       </div>
+      {showDeployConfirm && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60'>
+          <div className='flex w-full max-w-[440px] flex-col gap-5 rounded-lg bg-[#222222] p-6' style={{ border: '0.5px solid #5B5B5B' }}>
+            <div className='flex flex-col gap-2'>
+              <h3 className='text-lg font-semibold text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                Confirm Deployment
+              </h3>
+              <p className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                This will create infrastructure in your AWS account. The process takes 30-40 minutes and will incur AWS charges.
+              </p>
+            </div>
+            <div className='flex items-center justify-end gap-3'>
+              <button
+                onClick={() => setShowDeployConfirm(false)}
+                className='rounded-lg px-4 py-2 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+                style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowDeployConfirm(false); handleSubmit(handleDeploy)(); }}
+                disabled={isDeploying}
+                className='rounded-lg bg-[#FF4400] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
+                style={{ fontFamily: 'Satoshi, sans-serif' }}
+              >
+                {isDeploying ? 'Deploying...' : 'Yes, Deploy'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </FormProvider>
   );
 

@@ -86,7 +86,7 @@ export function mapConfigToForm(config: CustomerConfigResponse): Partial<Deploym
     availabilityZones: config.aws_config?.availability_zones ?? ['us-east-1a', 'us-east-1b', 'us-east-1c'],
     roleArn: config.aws_config?.role_arn ?? '',
     externalId: config.aws_config?.external_id ?? '',
-    awsConnectionVerified: !!(config.aws_config?.role_arn),
+    awsConnectionVerified: false,
     vpcCidr: vpc?.cidr_block ?? '10.0.0.0/16',
     natGatewayStrategy: vpc?.nat_gateway_strategy ?? 'single',
     enableDnsHostnames: true,
