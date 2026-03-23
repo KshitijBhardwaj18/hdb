@@ -339,7 +339,7 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
         # --- load config + outputs for ENI cleanup during retries ---
         from api.config_storage import config_storage
         config = config_storage.get_by_customer_id(customer_id)
-        deployment = db.get_deployment(stack_name)
+        deployment = db.get_deployment(customer_id, environment)
         outputs = json.loads(deployment.get("outputs", "{}") or "{}") if deployment else {}
 
         # --- pre-destroy cleanup ---
