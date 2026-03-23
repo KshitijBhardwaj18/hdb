@@ -52,6 +52,94 @@ def _run_async(coro):  # type: ignore[no-untyped-def]
         loop.close()
 
 
+def _cleanup_vpc_resources(
+    region: str,
+    role_arn: str,
+    external_id: str,
+    vpc_id: str,
+    session_name: str,
+) -> None:
+    """Clean up instances, load balancers, and ENIs in a VPC via AWS API.
+
+    Used before/between Pulumi destroy attempts to clear resources that
+    block security group deletion (orphaned ENIs from VPC CNI, lingering LBs).
+    Safe because the VPC is unique to the customer deployment.
+    """
+    if not vpc_id:
+        return
+
+    import boto3
+
+    sts = boto3.client("sts", region_name=region)
+    assumed = sts.assume_role(
+        RoleArn=role_arn,
+        ExternalId=external_id,
+        RoleSessionName=session_name,
+        DurationSeconds=3600,
+    )
+    creds = assumed["Credentials"]
+    cred_kwargs = {
+        "aws_access_key_id": creds["AccessKeyId"],
+        "aws_secret_access_key": creds["SecretAccessKey"],
+        "aws_session_token": creds["SessionToken"],
+    }
+    ec2 = boto3.client("ec2", region_name=region, **cred_kwargs)
+    elbv2 = boto3.client("elbv2", region_name=region, **cred_kwargs)
+
+    # 1. Terminate all instances in VPC
+    reservations = ec2.describe_instances(
+        Filters=[
+            {"Name": "vpc-id", "Values": [vpc_id]},
+            {"Name": "instance-state-name", "Values": ["running", "pending", "stopping"]},
+        ]
+    ).get("Reservations", [])
+    instance_ids = [i["InstanceId"] for r in reservations for i in r.get("Instances", [])]
+    if instance_ids:
+        logger.info("Terminating %d instances in VPC %s", len(instance_ids), vpc_id)
+        ec2.terminate_instances(InstanceIds=instance_ids)
+        ec2.get_waiter("instance_terminated").wait(
+            InstanceIds=instance_ids, WaiterConfig={"Delay": 15, "MaxAttempts": 40},
+        )
+        logger.info("All instances terminated")
+
+    # 2. Delete load balancers in VPC
+    lbs = elbv2.describe_load_balancers().get("LoadBalancers", [])
+    for lb in lbs:
+        if lb.get("VpcId") == vpc_id:
+            try:
+                elbv2.delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
+                logger.info("Deleted LB %s", lb["LoadBalancerName"])
+            except Exception:
+                pass
+
+    # 3. Wait for ENI release
+    logger.info("Waiting 60s for ENI release...")
+    time.sleep(60)
+
+    # 4. Detach and delete orphaned ENIs
+    enis = ec2.describe_network_interfaces(
+        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+    ).get("NetworkInterfaces", [])
+    for eni in enis:
+        eni_id = eni["NetworkInterfaceId"]
+        attach = eni.get("Attachment", {})
+        if attach.get("DeviceIndex") == 0:
+            continue  # skip primary interfaces
+        if attach.get("AttachmentId"):
+            try:
+                ec2.detach_network_interface(AttachmentId=attach["AttachmentId"], Force=True)
+                time.sleep(3)
+            except Exception:
+                pass
+        try:
+            ec2.delete_network_interface(NetworkInterfaceId=eni_id)
+            logger.info("Deleted ENI %s", eni_id)
+        except Exception:
+            pass
+
+    logger.info("VPC resource cleanup done for %s", vpc_id)
+
+
 class _LockRenewer:
     """Background thread that renews the DB lock every interval."""
 
@@ -369,78 +457,18 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
                 db.add_event(stack_name, DeploymentEventType.CLEANUP_STARTED,
                              "Access node unavailable — running direct AWS cleanup")
                 try:
-                    import boto3
-                    _sts = boto3.client("sts", region_name=config.aws_config.region)
-                    _assumed = _sts.assume_role(
-                        RoleArn=config.aws_config.role_arn,
-                        ExternalId=config.aws_config.external_id,
-                        RoleSessionName=f"byoc-direct-cleanup-{customer_id}",
-                        DurationSeconds=3600,
+                    _cleanup_vpc_resources(
+                        region=config.aws_config.region,
+                        role_arn=config.aws_config.role_arn,
+                        external_id=config.aws_config.external_id,
+                        vpc_id=outputs.get("vpc_id", ""),
+                        session_name=f"byoc-direct-cleanup-{customer_id}",
                     )
-                    _creds = _assumed["Credentials"]
-                    _ec2 = boto3.client("ec2", region_name=config.aws_config.region,
-                        aws_access_key_id=_creds["AccessKeyId"],
-                        aws_secret_access_key=_creds["SecretAccessKey"],
-                        aws_session_token=_creds["SessionToken"])
-                    _elbv2 = boto3.client("elbv2", region_name=config.aws_config.region,
-                        aws_access_key_id=_creds["AccessKeyId"],
-                        aws_secret_access_key=_creds["SecretAccessKey"],
-                        aws_session_token=_creds["SessionToken"])
-
-                    vpc_id = outputs.get("vpc_id", "")
-                    if vpc_id:
-                        # Terminate all instances in VPC
-                        reservations = _ec2.describe_instances(
-                            Filters=[{"Name": "vpc-id", "Values": [vpc_id]},
-                                     {"Name": "instance-state-name", "Values": ["running", "pending", "stopping"]}]
-                        ).get("Reservations", [])
-                        instance_ids = [i["InstanceId"] for r in reservations for i in r.get("Instances", [])]
-                        if instance_ids:
-                            logger.info("Terminating %d instances in VPC %s", len(instance_ids), vpc_id)
-                            _ec2.terminate_instances(InstanceIds=instance_ids)
-                            waiter = _ec2.get_waiter("instance_terminated")
-                            waiter.wait(InstanceIds=instance_ids, WaiterConfig={"Delay": 15, "MaxAttempts": 40})
-                            logger.info("All instances terminated")
-
-                        # Delete load balancers
-                        lbs = _elbv2.describe_load_balancers().get("LoadBalancers", [])
-                        for lb in lbs:
-                            if lb.get("VpcId") == vpc_id:
-                                try:
-                                    _elbv2.delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
-                                    logger.info("Deleted LB %s", lb["LoadBalancerName"])
-                                except Exception:
-                                    pass
-
-                        logger.info("Waiting 60s for ENI release...")
-                        time.sleep(60)
-
-                        # Delete orphaned ENIs
-                        enis = _ec2.describe_network_interfaces(
-                            Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
-                        ).get("NetworkInterfaces", [])
-                        for eni in enis:
-                            eni_id = eni["NetworkInterfaceId"]
-                            attach = eni.get("Attachment", {})
-                            attach_id = attach.get("AttachmentId")
-                            if attach_id and attach.get("DeviceIndex") != 0:
-                                try:
-                                    _ec2.detach_network_interface(AttachmentId=attach_id, Force=True)
-                                    time.sleep(3)
-                                except Exception:
-                                    pass
-                            try:
-                                _ec2.delete_network_interface(NetworkInterfaceId=eni_id)
-                                logger.info("Deleted ENI %s", eni_id)
-                            except Exception:
-                                pass
-
                     db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED, "Direct AWS cleanup completed")
-                    logger.info("Direct AWS cleanup completed for %s", stack_name)
                 except Exception as direct_err:
                     logger.warning("Direct AWS cleanup failed: %s. Proceeding anyway.", direct_err)
                     db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED,
-                                 f"Direct cleanup partial — proceeding with destroy")
+                                 "Direct cleanup partial — proceeding with destroy")
             else:
                 error_msg = f"Pre-destroy cleanup error: {cleanup_err}"
                 db.add_event(stack_name, DeploymentEventType.CLEANUP_FAILED, error_msg, details=err_str)
@@ -448,6 +476,19 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
                 db.transition_deployment_status(stack_name=stack_name, to_status=DeploymentStatus.FAILED, error_message=error_msg)
                 db.add_event(stack_name, DeploymentEventType.DESTROY_FAILED, error_msg)
                 return {"status": "failed", "stack_name": stack_name, "error": error_msg}
+
+        # --- post-cleanup: catch lingering VPC CNI ENIs via AWS API ---
+        try:
+            _cleanup_vpc_resources(
+                region=config.aws_config.region,
+                role_arn=config.aws_config.role_arn,
+                external_id=config.aws_config.external_id,
+                vpc_id=outputs.get("vpc_id", ""),
+                session_name=f"byoc-post-cleanup-{customer_id}",
+            )
+            logger.info("Post-cleanup done for %s", stack_name)
+        except Exception as post_err:
+            logger.warning("Post-cleanup failed (non-fatal): %s", post_err)
 
         # --- pulumi destroy ---
         db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING, "Running pulumi destroy")
@@ -484,80 +525,15 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
 
             # Clean up orphaned ENIs blocking security group deletion
             try:
-                import boto3
-                sts = boto3.client("sts", region_name=config.aws_config.region)
-                assumed = sts.assume_role(
-                    RoleArn=config.aws_config.role_arn,
-                    ExternalId=config.aws_config.external_id,
-                    RoleSessionName=f"byoc-eni-cleanup-{customer_id}",
-                    DurationSeconds=900,
+                _cleanup_vpc_resources(
+                    region=config.aws_config.region,
+                    role_arn=config.aws_config.role_arn,
+                    external_id=config.aws_config.external_id,
+                    vpc_id=outputs.get("vpc_id", ""),
+                    session_name=f"byoc-eni-cleanup-{customer_id}",
                 )
-                creds = assumed["Credentials"]
-                ec2 = boto3.client(
-                    "ec2",
-                    region_name=config.aws_config.region,
-                    aws_access_key_id=creds["AccessKeyId"],
-                    aws_secret_access_key=creds["SecretAccessKey"],
-                    aws_session_token=creds["SessionToken"],
-                )
-
-                # Find all ENIs in the VPC
-                vpc_id = outputs.get("vpc_id", "")
-                if vpc_id:
-                    enis = ec2.describe_network_interfaces(
-                        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
-                    ).get("NetworkInterfaces", [])
-
-                    for eni in enis:
-                        eni_id = eni["NetworkInterfaceId"]
-                        attachment = eni.get("Attachment", {})
-                        attach_id = attachment.get("AttachmentId")
-                        instance_id = attachment.get("InstanceId")
-
-                        # Skip primary interfaces of running instances
-                        if attachment.get("DeviceIndex") == 0 and instance_id:
-                            try:
-                                ec2.terminate_instances(InstanceIds=[instance_id])
-                                logger.info("Terminated instance %s", instance_id)
-                            except Exception:
-                                pass
-                            continue
-
-                        if attach_id and attach_id != "None":
-                            try:
-                                ec2.detach_network_interface(
-                                    AttachmentId=attach_id, Force=True
-                                )
-                                time.sleep(3)
-                            except Exception:
-                                pass
-                        try:
-                            ec2.delete_network_interface(NetworkInterfaceId=eni_id)
-                            logger.info("Deleted ENI %s", eni_id)
-                        except Exception:
-                            pass
-
-                    # Also delete any remaining LBs
-                    elbv2 = boto3.client(
-                        "elbv2",
-                        region_name=config.aws_config.region,
-                        aws_access_key_id=creds["AccessKeyId"],
-                        aws_secret_access_key=creds["SecretAccessKey"],
-                        aws_session_token=creds["SessionToken"],
-                    )
-                    lbs = elbv2.describe_load_balancers().get("LoadBalancers", [])
-                    for lb in lbs:
-                        if lb.get("VpcId") == vpc_id:
-                            try:
-                                elbv2.delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
-                                logger.info("Deleted LB %s", lb["LoadBalancerName"])
-                            except Exception:
-                                pass
-
-                logger.info("ENI cleanup done, waiting 60s for release...")
-                time.sleep(60)
-            except Exception as cleanup_err:
-                logger.warning("ENI cleanup failed: %s", cleanup_err)
+            except Exception as eni_err:
+                logger.warning("ENI cleanup failed: %s", eni_err)
                 time.sleep(300)
 
         if result and result.summary.result == "succeeded":
