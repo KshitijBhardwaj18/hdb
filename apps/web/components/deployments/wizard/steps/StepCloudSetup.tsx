@@ -370,6 +370,33 @@ export function StepCloudSetup() {
             </div>
           )}
 
+          {/* vCPU quota */}
+          {connectionTested && testConnection.data && (testConnection.data.vcpu_quota != null || testConnection.data.vcpu_warning) && (
+            <div
+              className="rounded-lg px-4 py-3"
+              style={{
+                backgroundColor: testConnection.data.vcpu_warning
+                  ? 'rgba(251, 191, 36, 0.08)'
+                  : 'rgba(0, 207, 35, 0.08)',
+                border: testConnection.data.vcpu_warning
+                  ? '0.5px solid rgba(251, 191, 36, 0.3)'
+                  : '0.5px solid rgba(0, 207, 35, 0.3)',
+              }}
+            >
+              <div className="flex flex-col gap-1 text-xs" style={font}>
+                {testConnection.data.vcpu_quota != null && (
+                  <span className={testConnection.data.vcpu_warning ? 'text-amber-400' : 'text-[#A7A7A7]'}>
+                    vCPU Quota: <span className="text-white">{testConnection.data.vcpu_quota}</span>
+                    {testConnection.data.vcpu_quota >= 32 ? ' (sufficient)' : ' (insufficient — minimum 32 required)'}
+                  </span>
+                )}
+                {testConnection.data.vcpu_warning && (
+                  <span className="text-amber-400">{testConnection.data.vcpu_warning}</span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Failure details */}
           {connectionFailed && !testConnection.isPending && (
             <div

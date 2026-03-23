@@ -105,6 +105,12 @@ export default function DeploymentCompletePage() {
             >
               The NLB address can be found in your AWS Console under EC2 → Load Balancers, or in the deployment details on your dashboard.
             </p>
+            <div className='mt-3 rounded-lg bg-[#202020] p-3' style={{ border: '0.5px solid #333' }}>
+              <p className='text-xs text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                <span className='font-semibold text-white'>Minimum Requirements:</span> Your AWS account needs at least 32 vCPU quota for On-Demand Standard instances.
+                Check at AWS Console → Service Quotas → EC2 → Running On-Demand Standard instances.
+              </p>
+            </div>
           </div>
         )}
 

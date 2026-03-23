@@ -110,8 +110,16 @@ async def test_connection(
                     "Request an increase at AWS Console → Service Quotas → EC2 → "
                     "Running On-Demand Standard instances."
                 )
-        except Exception:
-            pass
+        except Exception as quota_err:
+            logger.warning(
+                "Could not check vCPU quota for role %s in %s: %s",
+                request.role_arn, request.region, quota_err,
+            )
+            vcpu_warning = (
+                "Could not check vCPU quota — ensure the role has "
+                "servicequotas:GetServiceQuota permission. "
+                "HydraDB requires at least 32 vCPUs (EC2 On-Demand Standard)."
+            )
 
         return TestConnectionSuccess(
             status="connected",

@@ -296,6 +296,8 @@ export interface AwsTestConnectionSuccess {
   account_id: string;
   assumed_role_arn: string;
   region: string;
+  vcpu_quota?: number | null;
+  vcpu_warning?: string | null;
 }
 
 export interface AwsTestConnectionFailure {

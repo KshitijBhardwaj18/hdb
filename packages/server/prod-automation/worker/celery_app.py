@@ -336,6 +336,12 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
         # The route already set status to DESTROYING atomically
         db.audit_log("destroy_started", customer_id, environment=environment)
 
+        # --- load config + outputs for ENI cleanup during retries ---
+        from api.config_storage import config_storage
+        config = config_storage.get_by_customer_id(customer_id)
+        deployment = db.get_deployment(stack_name)
+        outputs = json.loads(deployment.get("outputs", "{}") or "{}") if deployment else {}
+
         # --- pre-destroy cleanup ---
         try:
             from api.services.destroy_manager import DestroyManager
@@ -356,12 +362,19 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
                 db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED, "Pre-destroy cleanup completed")
                 logger.info("Pre-destroy cleanup succeeded for %s", stack_name)
         except Exception as cleanup_err:
-            error_msg = f"Pre-destroy cleanup error: {cleanup_err}"
-            db.add_event(stack_name, DeploymentEventType.CLEANUP_FAILED, error_msg, details=str(cleanup_err))
-            logger.exception("Pre-destroy cleanup error for %s", stack_name)
-            db.transition_deployment_status(stack_name=stack_name, to_status=DeploymentStatus.FAILED, error_message=error_msg)
-            db.add_event(stack_name, DeploymentEventType.DESTROY_FAILED, error_msg)
-            return {"status": "failed", "stack_name": stack_name, "error": error_msg}
+            err_str = str(cleanup_err)
+            # If access node is gone (terminated/not found), skip pre-destroy and proceed
+            if "InvalidInstanceId" in err_str or "not available" in err_str or "not found" in err_str:
+                logger.warning("Access node unavailable for %s — skipping pre-destroy, will clean ENIs during destroy", stack_name)
+                db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED,
+                             "Pre-destroy skipped — access node no longer available, proceeding with destroy")
+            else:
+                error_msg = f"Pre-destroy cleanup error: {cleanup_err}"
+                db.add_event(stack_name, DeploymentEventType.CLEANUP_FAILED, error_msg, details=err_str)
+                logger.exception("Pre-destroy cleanup error for %s", stack_name)
+                db.transition_deployment_status(stack_name=stack_name, to_status=DeploymentStatus.FAILED, error_message=error_msg)
+                db.add_event(stack_name, DeploymentEventType.DESTROY_FAILED, error_msg)
+                return {"status": "failed", "stack_name": stack_name, "error": error_msg}
 
         # --- pulumi destroy ---
         db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING, "Running pulumi destroy")
@@ -380,12 +393,90 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             if result.summary.result == "succeeded":
                 break
             logger.warning(
-                "Destroy attempt %d/%d failed for %s. Waiting 5min for AWS cleanup...",
+                "Destroy attempt %d/%d failed for %s. Cleaning up ENIs...",
                 attempt - 1, max_attempts, stack_name,
             )
-            db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_FAILED,
-                         f"Destroy attempt {attempt - 1} failed, retrying in 5 minutes...")
-            time.sleep(300)
+            db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING,
+                         f"Destroy attempt {attempt - 1} needs retry — cleaning up ENIs...")
+
+            # Clean up orphaned ENIs blocking security group deletion
+            try:
+                import boto3
+                sts = boto3.client("sts", region_name=config.aws_config.region)
+                assumed = sts.assume_role(
+                    RoleArn=config.aws_config.role_arn,
+                    ExternalId=config.aws_config.external_id,
+                    RoleSessionName=f"byoc-eni-cleanup-{customer_id}",
+                    DurationSeconds=900,
+                )
+                creds = assumed["Credentials"]
+                ec2 = boto3.client(
+                    "ec2",
+                    region_name=config.aws_config.region,
+                    aws_access_key_id=creds["AccessKeyId"],
+                    aws_secret_access_key=creds["SecretAccessKey"],
+                    aws_session_token=creds["SessionToken"],
+                )
+
+                # Find all ENIs in the VPC
+                vpc_id = outputs.get("vpc_id", "")
+                if vpc_id:
+                    enis = ec2.describe_network_interfaces(
+                        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+                    ).get("NetworkInterfaces", [])
+
+                    for eni in enis:
+                        eni_id = eni["NetworkInterfaceId"]
+                        attachment = eni.get("Attachment", {})
+                        attach_id = attachment.get("AttachmentId")
+                        instance_id = attachment.get("InstanceId")
+
+                        # Skip primary interfaces of running instances
+                        if attachment.get("DeviceIndex") == 0 and instance_id:
+                            try:
+                                ec2.terminate_instances(InstanceIds=[instance_id])
+                                logger.info("Terminated instance %s", instance_id)
+                            except Exception:
+                                pass
+                            continue
+
+                        if attach_id and attach_id != "None":
+                            try:
+                                ec2.detach_network_interface(
+                                    AttachmentId=attach_id, Force=True
+                                )
+                                time.sleep(3)
+                            except Exception:
+                                pass
+                        try:
+                            ec2.delete_network_interface(NetworkInterfaceId=eni_id)
+                            logger.info("Deleted ENI %s", eni_id)
+                        except Exception:
+                            pass
+
+                    # Also delete any remaining LBs
+                    elbv2 = boto3.client(
+                        "elbv2",
+                        region_name=config.aws_config.region,
+                        aws_access_key_id=creds["AccessKeyId"],
+                        aws_secret_access_key=creds["SecretAccessKey"],
+                        aws_session_token=creds["SessionToken"],
+                    )
+                    lbs = elbv2.describe_load_balancers().get("LoadBalancers", [])
+                    for lb in lbs:
+                        if lb.get("VpcId") == vpc_id:
+                            try:
+                                elbv2.delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
+                                logger.info("Deleted LB %s", lb["LoadBalancerName"])
+                            except Exception:
+                                pass
+
+                logger.info("ENI cleanup done, waiting 60s for release...")
+                time.sleep(60)
+            except Exception as cleanup_err:
+                logger.warning("ENI cleanup failed: %s", cleanup_err)
+                time.sleep(300)
+
             result = engine.destroy(stack_name, on_output=_on_output)
 
         if result.summary.result == "succeeded":
