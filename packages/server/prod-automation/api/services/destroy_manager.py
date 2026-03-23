@@ -176,7 +176,7 @@ echo "==> Pre-destroy cleanup complete! Safe to run pulumi destroy."
         command_id = response["Command"]["CommandId"]
         self._save_addon_state("pre-destroy", command_id, instance_id)
 
-        max_wait = 300  # 5 minutes max — pre-destroy is best-effort
+        max_wait = 900  # 15 minutes max — pre-destroy is best-effort
         poll_interval = 15
         elapsed = 0
 
