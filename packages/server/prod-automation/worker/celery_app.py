@@ -365,9 +365,82 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             err_str = str(cleanup_err)
             # If access node is gone (terminated/not found), skip pre-destroy and proceed
             if "InvalidInstanceId" in err_str or "not available" in err_str or "not found" in err_str:
-                logger.warning("Access node unavailable for %s — skipping pre-destroy, will clean ENIs during destroy", stack_name)
-                db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED,
-                             "Pre-destroy skipped — access node no longer available, proceeding with destroy")
+                logger.warning("Access node unavailable for %s — running direct AWS cleanup", stack_name)
+                db.add_event(stack_name, DeploymentEventType.CLEANUP_STARTED,
+                             "Access node unavailable — running direct AWS cleanup")
+                try:
+                    import boto3
+                    _sts = boto3.client("sts", region_name=config.aws_config.region)
+                    _assumed = _sts.assume_role(
+                        RoleArn=config.aws_config.role_arn,
+                        ExternalId=config.aws_config.external_id,
+                        RoleSessionName=f"byoc-direct-cleanup-{customer_id}",
+                        DurationSeconds=3600,
+                    )
+                    _creds = _assumed["Credentials"]
+                    _ec2 = boto3.client("ec2", region_name=config.aws_config.region,
+                        aws_access_key_id=_creds["AccessKeyId"],
+                        aws_secret_access_key=_creds["SecretAccessKey"],
+                        aws_session_token=_creds["SessionToken"])
+                    _elbv2 = boto3.client("elbv2", region_name=config.aws_config.region,
+                        aws_access_key_id=_creds["AccessKeyId"],
+                        aws_secret_access_key=_creds["SecretAccessKey"],
+                        aws_session_token=_creds["SessionToken"])
+
+                    vpc_id = outputs.get("vpc_id", "")
+                    if vpc_id:
+                        # Terminate all instances in VPC
+                        reservations = _ec2.describe_instances(
+                            Filters=[{"Name": "vpc-id", "Values": [vpc_id]},
+                                     {"Name": "instance-state-name", "Values": ["running", "pending", "stopping"]}]
+                        ).get("Reservations", [])
+                        instance_ids = [i["InstanceId"] for r in reservations for i in r.get("Instances", [])]
+                        if instance_ids:
+                            logger.info("Terminating %d instances in VPC %s", len(instance_ids), vpc_id)
+                            _ec2.terminate_instances(InstanceIds=instance_ids)
+                            waiter = _ec2.get_waiter("instance_terminated")
+                            waiter.wait(InstanceIds=instance_ids, WaiterConfig={"Delay": 15, "MaxAttempts": 40})
+                            logger.info("All instances terminated")
+
+                        # Delete load balancers
+                        lbs = _elbv2.describe_load_balancers().get("LoadBalancers", [])
+                        for lb in lbs:
+                            if lb.get("VpcId") == vpc_id:
+                                try:
+                                    _elbv2.delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
+                                    logger.info("Deleted LB %s", lb["LoadBalancerName"])
+                                except Exception:
+                                    pass
+
+                        logger.info("Waiting 60s for ENI release...")
+                        time.sleep(60)
+
+                        # Delete orphaned ENIs
+                        enis = _ec2.describe_network_interfaces(
+                            Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+                        ).get("NetworkInterfaces", [])
+                        for eni in enis:
+                            eni_id = eni["NetworkInterfaceId"]
+                            attach = eni.get("Attachment", {})
+                            attach_id = attach.get("AttachmentId")
+                            if attach_id and attach.get("DeviceIndex") != 0:
+                                try:
+                                    _ec2.detach_network_interface(AttachmentId=attach_id, Force=True)
+                                    time.sleep(3)
+                                except Exception:
+                                    pass
+                            try:
+                                _ec2.delete_network_interface(NetworkInterfaceId=eni_id)
+                                logger.info("Deleted ENI %s", eni_id)
+                            except Exception:
+                                pass
+
+                    db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED, "Direct AWS cleanup completed")
+                    logger.info("Direct AWS cleanup completed for %s", stack_name)
+                except Exception as direct_err:
+                    logger.warning("Direct AWS cleanup failed: %s. Proceeding anyway.", direct_err)
+                    db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED,
+                                 f"Direct cleanup partial — proceeding with destroy")
             else:
                 error_msg = f"Pre-destroy cleanup error: {cleanup_err}"
                 db.add_event(stack_name, DeploymentEventType.CLEANUP_FAILED, error_msg, details=err_str)
@@ -387,17 +460,27 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             if len(pulumi_lines) > 200:
                 pulumi_lines.pop(0)
 
+        from pulumi.automation.errors import CommandError
+
         max_attempts = 3
-        result = engine.destroy(stack_name, on_output=_on_output)
-        for attempt in range(2, max_attempts + 1):
-            if result.summary.result == "succeeded":
+        last_error = None
+        result = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = engine.destroy(stack_name, on_output=_on_output)
+                if result.summary.result == "succeeded":
+                    break
+            except CommandError as e:
+                last_error = e
+                logger.warning("Destroy attempt %d/%d raised error for %s: %s", attempt, max_attempts, stack_name, str(e)[:200])
+                result = None
+
+            if attempt >= max_attempts:
                 break
-            logger.warning(
-                "Destroy attempt %d/%d failed for %s. Cleaning up ENIs...",
-                attempt - 1, max_attempts, stack_name,
-            )
+
+            logger.warning("Cleaning up ENIs before retry %d...", attempt + 1)
             db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING,
-                         f"Destroy attempt {attempt - 1} needs retry — cleaning up ENIs...")
+                         f"Destroy attempt {attempt} needs retry — cleaning up ENIs...")
 
             # Clean up orphaned ENIs blocking security group deletion
             try:
@@ -477,9 +560,7 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
                 logger.warning("ENI cleanup failed: %s", cleanup_err)
                 time.sleep(300)
 
-            result = engine.destroy(stack_name, on_output=_on_output)
-
-        if result.summary.result == "succeeded":
+        if result and result.summary.result == "succeeded":
             db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_SUCCEEDED, "Pulumi destroy completed")
             db.transition_deployment_status(
                 stack_name=stack_name,
@@ -492,7 +573,7 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             return {"status": "destroyed", "stack_name": stack_name}
 
         error_context = "\n".join(pulumi_lines[-30:])
-        error_msg = f"Destroy failed after {max_attempts} attempts: {result.summary.result}"
+        error_msg = f"Destroy failed after {max_attempts} attempts: {last_error or (result.summary.result if result else 'unknown')}"
         db.add_event(
             stack_name,
             DeploymentEventType.PULUMI_DESTROY_FAILED,
@@ -509,7 +590,7 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             "destroy_failed",
             customer_id,
             environment=environment,
-            details=f"result: {result.summary.result}",
+            details=f"result: {last_error or (result.summary.result if result else 'unknown')}",
         )
         return {"status": "failed", "stack_name": stack_name}
 
