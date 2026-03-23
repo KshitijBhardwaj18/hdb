@@ -217,13 +217,31 @@ def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: igno
                 db.update_addon_status(stack_name, "in_progress")
                 installer = AddonInstallerService(customer_id, environment)
                 addon_result = _run_async(installer.install_all_addons())
-                db.add_event(
-                    stack_name,
-                    DeploymentEventType.ADDONS_SUCCEEDED,
-                    f"Addons installed (command_id={addon_result.ssm_command_id})",
-                )
-                db.update_addon_status(stack_name, "succeeded")
-                logger.info("Addon install for %s: command_id=%s", stack_name, addon_result.ssm_command_id)
+                logger.info("Addon SSM command sent for %s: command_id=%s", stack_name, addon_result.ssm_command_id)
+
+                # Poll for SSM command completion
+                addon_max_wait = 1200  # 20 minutes
+                addon_poll = 15
+                addon_elapsed = 0
+                while addon_elapsed < addon_max_wait:
+                    time.sleep(addon_poll)
+                    addon_elapsed += addon_poll
+                    status_result = _run_async(installer.get_install_status(
+                        addon_result.ssm_command_id, addon_result.instance_id
+                    ))
+                    if status_result.status.value == "succeeded":
+                        db.add_event(stack_name, DeploymentEventType.ADDONS_SUCCEEDED,
+                                     f"Addons installed (command_id={addon_result.ssm_command_id})")
+                        db.update_addon_status(stack_name, "succeeded")
+                        logger.info("Addon install succeeded for %s", stack_name)
+                        break
+                    elif status_result.status.value == "failed":
+                        raise Exception(f"Addon install failed: {status_result.error or 'unknown error'}")
+                    if addon_elapsed % 60 == 0:
+                        db.add_event(stack_name, DeploymentEventType.ADDONS_STARTED,
+                                     f"Addons still installing... ({addon_elapsed}s elapsed)")
+                else:
+                    raise Exception(f"Addon install timed out after {addon_max_wait}s")
             else:
                 db.update_addon_status(stack_name, "skipped")
                 db.add_event(stack_name, DeploymentEventType.ADDONS_SUCCEEDED, "No addons enabled — skipped")
