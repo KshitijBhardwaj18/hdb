@@ -41,6 +41,8 @@ class TestConnectionSuccess(BaseModel):
     account_id: str
     assumed_role_arn: str
     region: str
+    vcpu_quota: int | None = None
+    vcpu_warning: str | None = None
 
 
 class TestConnectionFailure(BaseModel):
@@ -85,11 +87,39 @@ async def test_connection(
 
         identity = assumed_sts.get_caller_identity()
 
+        # Check vCPU quota (best-effort)
+        vcpu_quota = None
+        vcpu_warning = None
+        try:
+            sq = boto3.client(
+                "service-quotas",
+                region_name=request.region,
+                aws_access_key_id=creds["AccessKeyId"],
+                aws_secret_access_key=creds["SecretAccessKey"],
+                aws_session_token=creds["SessionToken"],
+            )
+            quota_resp = sq.get_service_quota(
+                ServiceCode="ec2",
+                QuotaCode="L-1216C47A",
+            )
+            vcpu_quota = int(quota_resp["Quota"]["Value"])
+            if vcpu_quota < 32:
+                vcpu_warning = (
+                    f"Your account has a {vcpu_quota} vCPU limit. "
+                    "HydraDB requires at least 32 vCPUs. "
+                    "Request an increase at AWS Console → Service Quotas → EC2 → "
+                    "Running On-Demand Standard instances."
+                )
+        except Exception:
+            pass
+
         return TestConnectionSuccess(
             status="connected",
             account_id=identity["Account"],
             assumed_role_arn=identity["Arn"],
             region=request.region,
+            vcpu_quota=vcpu_quota,
+            vcpu_warning=vcpu_warning,
         )
 
     except ClientError as e:

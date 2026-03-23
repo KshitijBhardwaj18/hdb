@@ -305,7 +305,7 @@ def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: igno
 @celery_app.task(
     bind=True,
     name="byoc.destroy",
-    max_retries=2,
+    max_retries=0,
     acks_late=True,
 )
 def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ignore[no-untyped-def]
@@ -346,24 +346,22 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             cleanup_result = _run_async(destroy_mgr.run_pre_destroy())
 
             if cleanup_result.status.value == "failed":
-                db.add_event(
-                    stack_name,
-                    DeploymentEventType.CLEANUP_FAILED,
-                    f"Pre-destroy cleanup failed: {cleanup_result.error}. Proceeding with destroy.",
-                    details=str(cleanup_result.error),
-                )
-                logger.warning("Pre-destroy cleanup failed for %s: %s", stack_name, cleanup_result.error)
+                error_msg = f"Pre-destroy cleanup failed: {cleanup_result.error}"
+                db.add_event(stack_name, DeploymentEventType.CLEANUP_FAILED, error_msg, details=str(cleanup_result.error))
+                logger.error("Pre-destroy cleanup failed for %s: %s", stack_name, cleanup_result.error)
+                db.transition_deployment_status(stack_name=stack_name, to_status=DeploymentStatus.FAILED, error_message=error_msg)
+                db.add_event(stack_name, DeploymentEventType.DESTROY_FAILED, error_msg)
+                return {"status": "failed", "stack_name": stack_name, "error": error_msg}
             else:
                 db.add_event(stack_name, DeploymentEventType.CLEANUP_SUCCEEDED, "Pre-destroy cleanup completed")
                 logger.info("Pre-destroy cleanup succeeded for %s", stack_name)
         except Exception as cleanup_err:
-            db.add_event(
-                stack_name,
-                DeploymentEventType.CLEANUP_FAILED,
-                f"Pre-destroy cleanup error: {cleanup_err}. Proceeding with destroy.",
-                details=str(cleanup_err),
-            )
+            error_msg = f"Pre-destroy cleanup error: {cleanup_err}"
+            db.add_event(stack_name, DeploymentEventType.CLEANUP_FAILED, error_msg, details=str(cleanup_err))
             logger.exception("Pre-destroy cleanup error for %s", stack_name)
+            db.transition_deployment_status(stack_name=stack_name, to_status=DeploymentStatus.FAILED, error_message=error_msg)
+            db.add_event(stack_name, DeploymentEventType.DESTROY_FAILED, error_msg)
+            return {"status": "failed", "stack_name": stack_name, "error": error_msg}
 
         # --- pulumi destroy ---
         db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING, "Running pulumi destroy")
@@ -439,14 +437,7 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
         )
         db.audit_log("destroy_failed", customer_id, environment=environment, details=str(e))
 
-        if self.request.retries < self.max_retries:
-            delay = 30 * (4 ** self.request.retries)
-            db.release_lock(stack_name)
-            renewer.stop()
-            # Re-set to DESTROYING for retry
-            db.transition_deployment_status(stack_name=stack_name, to_status=DeploymentStatus.DESTROYING)
-            raise self.retry(countdown=delay, exc=e)
-
+        # No outer retry — user can retry from UI
         return {"status": "failed", "stack_name": stack_name, "error": str(e)}
     finally:
         renewer.stop()
