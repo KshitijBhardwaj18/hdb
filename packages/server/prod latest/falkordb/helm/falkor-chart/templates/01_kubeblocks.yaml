@@ -24,6 +24,13 @@ spec:
         password: {{ .Values.auth.sharedSecretKey }}
     {{- end }}
     disableExporter: false
+
+    {{- if .Values.dataNode.falkordbArgs }}
+    env:
+    - name: FALKORDB_ARGS
+      value: {{ .Values.dataNode.falkordbArgs | quote }}
+    {{- end }}
+
     resources:
       requests:
         cpu: {{ .Values.dataNode.resources.requests.cpu | quote }}

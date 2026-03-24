@@ -1,0 +1,21 @@
+apiVersion: operations.kubeblocks.io/v1alpha1
+kind: OpsRequest
+metadata:
+  name: falkordb-pro-sh-tuning
+  namespace: falkordb-pro-sh
+spec:
+  clusterName: falkordb-pro-sh
+  type: Reconfiguring
+  reconfigures:
+    - componentName: falkordb
+      parameters:
+        - key: appendonly
+          value: "yes"
+        - key: appendfsync
+          value: "everysec"
+        - key: maxclients
+          value: "10000"
+        - key: activedefrag
+          value: "yes"
+        - key: tcp-keepalive
+          value: "60"

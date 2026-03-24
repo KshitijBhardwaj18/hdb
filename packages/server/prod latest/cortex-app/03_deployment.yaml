@@ -31,6 +31,10 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       serviceAccountName: cortex-app
       securityContext:
         runAsNonRoot: true
@@ -40,7 +44,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: cortex-app
-          image: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-app:7338efe9efe75d32dc8b84348c1c24bffc5024ed
+          image: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-app:cd617dc0d800e0a9e6d94b29cdc9abb666711c31
           imagePullPolicy: Always
           ports:
             - name: http
@@ -95,7 +99,7 @@ spec:
         - name: cache-volume
           emptyDir: {}
       nodeSelector:
-        role: general
+        role: cortex-app
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

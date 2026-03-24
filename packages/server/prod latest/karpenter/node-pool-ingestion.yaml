@@ -1,0 +1,29 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: cortex-ingestion
+spec:
+  template:
+    metadata:
+      labels:
+        role: cortex-ingestion
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: cortex-ingestion
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["g4dn.xlarge", "g4dn.large", "g4dn2.xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 50m

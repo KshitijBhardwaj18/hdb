@@ -3,10 +3,10 @@ prometheus:
     resources:
       requests:
         cpu: 500m
-        memory: 4Gi
+        memory: 6Gi
       limits:
         cpu: 2000m
-        memory: 12Gi
+        memory: 16Gi
     retention: 10d
     retentionSize: "18GB"
     additionalArgs:
@@ -16,6 +16,8 @@ prometheus:
         value: "2m"
       - name: query.max-samples
         value: "50000000"
+      - name: storage.tsdb.wal-segment-size
+        value: "64MB"
     storageSpec:
       volumeClaimTemplate:
         spec:

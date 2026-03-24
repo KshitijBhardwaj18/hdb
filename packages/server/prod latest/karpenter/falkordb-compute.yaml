@@ -1,0 +1,90 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: falkordb-pool
+spec:
+  role: "KarpenterNodeRole-cortex-prod"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "cortex-prod"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "cortex-prod"
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 50Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+        encrypted: true
+  userData: |
+    #!/bin/bash
+    set -e
+
+    # Disable Transparent Huge Pages — causes latency spikes during
+    # BGSAVE fork/COW as the kernel promotes pages to 2 MB granularity,
+    # turning every write into a full-page copy-on-write fault.
+    echo never > /sys/kernel/mm/transparent_hugepage/enabled
+    echo never > /sys/kernel/mm/transparent_hugepage/defrag
+
+    # Allow memory overcommit — prevents BGSAVE/BGREWRITEAOF failures.
+    # Redis forks a child that COW-shares the parent address space;
+    # without overcommit the kernel may refuse the fork when RSS is high.
+    echo 1 > /proc/sys/vm/overcommit_memory
+
+    # Raise connection backlog for Redis (default 128 is too low)
+    echo 65535 > /proc/sys/net/core/somaxconn
+    echo 65535 > /proc/sys/net/ipv4/tcp_max_syn_backlog
+
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: falkordb-pool
+spec:
+  template:
+    metadata:
+      labels:
+        role: falkordb
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: falkordb-pool
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - r8i.xlarge              # 4 vCPU, 32 GiB DDR5, AVX-512 — primary choice
+            - r8i.2xlarge             # 8 vCPU, 64 GiB — fallback if xlarge unavailable
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+      taints:
+        - key: workload
+          value: falkordb
+          effect: NoSchedule
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 60m
+    budgets:
+      - reasons: [Drifted, Underutilized]
+        nodes: "0"
+  limits:
+    cpu: "32"
+    memory: 256Gi

@@ -1,0 +1,63 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: milvus-attu
+spec:
+  role: "KarpenterNodeRole-cortex-prod"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "cortex-prod"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "cortex-prod"
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 20Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+        encrypted: true
+
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: milvus-attu
+spec:
+  template:
+    metadata:
+      labels:
+        role: milvus-attu
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: milvus-attu
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - t4g.small
+            - t4g.medium
+            - t3.small
+            - t3.medium
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+      taints:
+        - key: workload
+          value: milvus-attu
+          effect: NoSchedule
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
+  limits:
+    cpu: "8"
+    memory: 16Gi
