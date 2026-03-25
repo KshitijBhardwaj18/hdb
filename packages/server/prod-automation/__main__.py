@@ -142,7 +142,7 @@ aws.s3.BucketPublicAccessBlock(
 # Milvus object storage bucket (replaces MinIO)
 milvus_bucket = aws.s3.BucketV2(
     f"{config.customer_id}-milvus-bucket",
-    opts=pulumi.ResourceOptions(provider=customer_aws),
+    opts=pulumi.ResourceOptions(provider=aws_provider),
 )
 
 aws.s3.BucketPublicAccessBlock(
@@ -152,7 +152,7 @@ aws.s3.BucketPublicAccessBlock(
     block_public_policy=True,
     ignore_public_acls=True,
     restrict_public_buckets=True,
-    opts=pulumi.ResourceOptions(provider=customer_aws),
+    opts=pulumi.ResourceOptions(provider=aws_provider),
 )
 
 # DynamoDB Tables
