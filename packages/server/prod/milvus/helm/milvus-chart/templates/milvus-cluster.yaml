@@ -17,12 +17,12 @@ spec:
         security:
           authorizationEnabled: {{ .Values.milvus.config.authEnabled }}
     {{- if .Values.milvus.dependencies.s3.enabled }}
-      minio:
-        bucketName: {{ .Values.milvus.dependencies.s3.bucketName | default (printf "milvus-%s" .Values.org_id) }}
-        rootPath: milvus
-        useSSL: true
-        useIAM: true
-        cloudProvider: aws
+    minio:
+      bucketName: {{ .Values.milvus.dependencies.s3.bucketName | default (printf "milvus-%s" .Values.org_id) }}
+      rootPath: milvus
+      useSSL: true
+      useIAM: true
+      cloudProvider: aws
     {{- end }}
 
   components:
@@ -108,7 +108,7 @@ spec:
     storage:
       external: true
       type: S3
-      secretRef: ""
+      secretRef: milvus-iam-secret
       endpoint: s3.{{ .Values.milvus.dependencies.s3.region }}.amazonaws.com:443
     {{- end }}
 

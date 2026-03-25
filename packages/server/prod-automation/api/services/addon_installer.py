@@ -304,6 +304,11 @@ volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Retain
 MILVUS_SC_EOF
 
+echo "==> Creating Milvus namespace and IAM secret..."
+kubectl create namespace milvus-{self.customer_id} --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic milvus-iam-secret -n milvus-{self.customer_id} --from-literal=accesskey=iam --from-literal=secretkey=iam --dry-run=client -o yaml | kubectl apply -f -
+echo "==> Milvus IAM secret created!"
+
 echo "==> Verifying FalkorDB StorageClasses..."
 kubectl get storageclass | grep falkordb
 
