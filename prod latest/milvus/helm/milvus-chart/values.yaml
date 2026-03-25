@@ -1,0 +1,240 @@
+# =============================================================================
+# Milvus Tenant Helm Chart - values.yaml
+# =============================================================================
+# The org_id is the primary identifier for the tenant/organization.
+# All resource names and DNS entries are derived from this value.
+# =============================================================================
+
+# Organization/Tenant ID - This is the ROOT variable
+# All naming conventions derive from this:
+#   - Namespace: milvus-{org_id}
+#   - Cluster name: {org_id}
+#   - Service: {org_id}-milvus
+#   - gRPC host: {org_id}.milvusdb.usecortex.ai
+#   - WebUI host: {org_id}-webui.milvusdb.usecortex.ai
+#   - Attu host: {org_id}-attu.milvusdb.usecortex.ai
+org_id: cortexai
+
+# -----------------------------------------------------------------------------
+# Namespace Configuration
+# -----------------------------------------------------------------------------
+namespace:
+  create: false
+
+# -----------------------------------------------------------------------------
+# Storage Class Configuration
+# -----------------------------------------------------------------------------
+storageClass:
+  create: false
+  name: milvus-storage  # Used if create is false
+  provisioner: ebs.csi.aws.com
+  parameters:
+    type: gp3
+    iops: 3000
+    throughput: 125
+    fsType: ext4
+    encrypted: true
+  allowVolumeExpansion: true
+  volumeBindingMode: WaitForFirstConsumer
+  reclaimPolicy: Retain
+
+# -----------------------------------------------------------------------------
+# Node Selector and Tolerations (applied to all components)
+# -----------------------------------------------------------------------------
+nodeSelector:
+  role: milvus-general
+
+tolerations:
+  - key: workload
+    operator: Equal
+    value: milvus-general
+    effect: NoSchedule
+
+
+queryNodeSelector:
+  role: milvus-compute-nvme 
+      
+queryNodeTolerations:
+  - key: workload
+    operator: Equal
+    value: milvus-compute-nvme
+    effect: NoSchedule
+
+# -----------------------------------------------------------------------------
+# Milvus Cluster Configuration
+# -----------------------------------------------------------------------------
+milvus:
+  mode: cluster
+  
+  config:
+    newSchema: true
+    logLevel: info
+    authEnabled: true
+    maxVectorFieldNum: 10
+
+    queryNode:
+      cache:
+        warmup: async
+        memoryLimit: 4294967296      # 4Gi — half of 8Gi limit, headroom for HNSW overhead
+        readAheadPolicy: willneed    # aggressive prefetch, good for NVMe sequential reads
+      mmap:
+        vectorField: false           # HNSW vectors MUST stay in RAM — never mmap
+        vectorIndex: false           # HNSW graph MUST stay in RAM — never mmap
+        scalarField: true            # INT64 scalars safe to mmap — tiny footprint
+        scalarIndex: true            # scalar inverted indexes safe to mmap
+        chunkCache: true             # chunk cache on NVMe emptyDir — fast page faults
+      segcore:
+        chunkRows: 4096              # required — fixes nlist constraint for interimIndex IVF
+        knowhereThreadPoolNumRatio: 4
+        interimIndex:
+          enableIndex: true          # IVF on growing segments — eliminates brute force
+          nlist: 128                 # 128 Voronoi cells for growing segment IVF
+          nprobe: 32                 # probe 32/128 cells — 25% scan, higher recall
+
+    dataCoord:
+      segment:
+        maxSize: 2048                # 4× default — fewer segments, less search fan-out
+        sealProportion: 0.12
+        expansionRate: 1.25
+
+    common:
+      simdType: avx512               # use AVX-512 SIMD path for distance computation
+      gracefulTime: 5000             # ms — drain in-flight queries before shutdown
+      gracefulStopTimeout: 30        # seconds — total graceful stop window
+  
+  components:
+      image: milvusdb/milvus:v2.6.11
+      proxy:
+        replicas: 2
+        serviceType: ClusterIP
+        resources:
+          requests: { cpu: "250m", memory: "512Mi" }
+          limits:   { cpu: "2",    memory: "4Gi" }
+
+      queryNode:
+        replicas: 2
+        resources:
+          requests: { cpu: "1",  memory: "2Gi" }
+          limits:   { cpu: "4",  memory: "8Gi" }
+
+      dataNode:
+        replicas: 2
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits:   { cpu: "4",    memory: "8Gi" }
+
+      mixCoord:
+        replicas: 1
+        resources:
+          requests: { cpu: "200m", memory: "512Mi" }
+          limits:   { cpu: "2",    memory: "2Gi" }
+
+      streamingNode:
+        replicas: 2                    # 2 replicas — WAL write path, no single point of failure
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits:   { cpu: "2",    memory: "4Gi" }
+  
+  dependencies:
+      etcd:
+        deletionPolicy: Delete
+        pvcDeletion: false
+        replicaCount: 3
+        storageSize: 10Gi
+        resources:
+          requests: { cpu: "200m", memory: "512Mi" }
+          limits:   { cpu: "1",    memory: "2Gi" }
+
+      s3:
+        enabled: true
+        region: us-east-1
+        bucketName: ""                 # set per-org in milvus-cr.yaml
+
+      msgStream:
+        type: woodpecker
+# -----------------------------------------------------------------------------
+# Ingress Configuration
+# -----------------------------------------------------------------------------
+ingress:
+  className: nginx-inc
+  domain: milvusdb.usecortex.ai
+  
+  # Optional: override the auto-generated TLS secret name
+  # If not set, uses: milvus-wildcard-tls-{org_id}
+  tlsSecretName: ""
+  
+  grpc:
+    enabled: true
+    proxyConnectTimeout: "60s"
+    proxyReadTimeout: "600s"
+    proxySendTimeout: "600s"
+    annotations: {}
+  
+  webui:
+    enabled: true
+    proxyConnectTimeout: "60s"
+    proxyReadTimeout: "300s"
+    proxySendTimeout: "300s"
+    clientMaxBodySize: "100m"
+    annotations: {}
+  
+  attu:
+    enabled: true
+    proxyConnectTimeout: "60s"
+    proxyReadTimeout: "300s"
+    proxySendTimeout: "300s"
+    clientMaxBodySize: "100m"
+    annotations: {}
+
+# -----------------------------------------------------------------------------
+# Attu Admin UI Configuration
+# -----------------------------------------------------------------------------
+attu:
+  enabled: true
+  replicas: 1
+  image:
+    repository: zilliz/attu
+    tag: v2.4
+  logLevel: info
+  nodeSelector:
+    role: milvus-attu
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: milvus-attu
+      effect: NoSchedule
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+# -----------------------------------------------------------------------------
+# Certificate Configuration (cert-manager)
+# -----------------------------------------------------------------------------
+certificate:
+  create: true  # Set to true to create wildcard certificate
+  issuerRef:
+    name: letsencrypt-dns01-milvus
+    kind: ClusterIssuer
+  duration: 2160h    # 90 days
+  renewBefore: 360h  # 15 days before expiry
+
+# -----------------------------------------------------------------------------
+# ClusterIssuer Configuration (cert-manager)
+# -----------------------------------------------------------------------------
+clusterIssuer:
+  create: false  # Set to true to create ClusterIssuer
+  name: letsencrypt-dns01-milvus
+  email: cloud@usecortex.ai
+  server: https://acme-v02.api.letsencrypt.org/directory
+  privateKeySecretRef: letsencrypt-dns01-milvus-key
+  cloudflare:
+    apiTokenSecretName: cloudflare-api-token-milvus
+    apiTokenKey: api-token
+
+# -----------------------------------------------------------------------------
+# Monitoring Configuration (Prometheus ServiceMonitor)
+# -----------------------------------------------------------------------------
+monitoring:
+  enabled: true
+  releaseLabel: monitoring
+  interval: 30s
