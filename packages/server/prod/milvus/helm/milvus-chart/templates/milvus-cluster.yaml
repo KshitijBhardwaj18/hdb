@@ -15,6 +15,14 @@ spec:
       common:
         security:
           authorizationEnabled: {{ .Values.milvus.config.authEnabled }}
+    {{- if .Values.milvus.dependencies.s3.enabled }}
+      minio:
+        bucketName: {{ .Values.milvus.dependencies.s3.bucketName | default (printf "milvus-%s" .Values.org_id) }}
+        rootPath: milvus
+        useSSL: true
+        useIAM: true
+        cloudProvider: aws
+    {{- end }}
 
   components:
     disableMetric: false
@@ -50,6 +58,13 @@ spec:
       tolerations:
         {{- toYaml .Values.queryNodeTolerations | nindent 8 }}
       {{- end }}
+      volumeMounts:
+        - mountPath: /var/lib/milvus/data
+          name: nvme-data
+      volumes:
+        - name: nvme-data
+          emptyDir:
+            sizeLimit: 200Gi
 
     dataNode:
       replicas: {{ .Values.milvus.components.dataNode.replicas }}
@@ -93,7 +108,7 @@ spec:
       external: true
       type: S3
       secretRef: ""
-      endpoint: s3.{{ .Values.milvus.dependencies.s3.region }}.amazonaws.com
+      endpoint: s3.{{ .Values.milvus.dependencies.s3.region }}.amazonaws.com:443
       accessMode: IAM
     {{- end }}
 
