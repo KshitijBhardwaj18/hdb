@@ -1,4 +1,4 @@
-{{- if .Values.ingress.enabled }}
+{{- if and .Values.cluster.enabled .Values.ingress.enabled }}
 {{- if not .Values.ingress.useWildcardCert }}
 {{- if not .Values.ingress.useTransportServer }}
 {{- $fullName := printf "%s-%s-%s" .Values.clusterName .Values.organization .Values.tenantId }}

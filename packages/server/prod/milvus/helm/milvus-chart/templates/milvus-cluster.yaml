@@ -1,3 +1,4 @@
+{{- if .Values.cluster.enabled }}
 apiVersion: milvus.io/v1beta1
 kind: Milvus
 metadata:
@@ -109,7 +110,7 @@ spec:
       type: S3
       secretRef: ""
       endpoint: s3.{{ .Values.milvus.dependencies.s3.region }}.amazonaws.com:443
-      accessMode: IAM
     {{- end }}
 
     msgStreamType: {{ .Values.milvus.dependencies.msgStream.type }}
+{{- end }}

@@ -1,3 +1,4 @@
+{{- if .Values.cluster.enabled }}
 {{- if .Values.monitoring.enabled }}
 {{- $fullName := printf "%s-%s-%s" .Values.clusterName .Values.organization .Values.tenantId }}
 {{- $serviceName := printf "%s-falkordb-falkordb" $fullName }}
@@ -83,4 +84,5 @@ spec:
     protocol: TCP
   selector:
     app: {{ $fullName }}-exporter
+{{- end }}
 {{- end }}

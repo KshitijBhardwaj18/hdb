@@ -1,3 +1,4 @@
+{{- if .Values.cluster.enabled }}
 {{- if .Values.monitoring.enabled }}
 {{- $fullName := printf "%s-%s-%s" .Values.clusterName .Values.organization .Values.tenantId }}
 apiVersion: monitoring.coreos.com/v1
@@ -51,4 +52,5 @@ spec:
       - action: replace
         replacement: {{ .Values.tenantId }}
         targetLabel: tenantId
+{{- end }}
 {{- end }}

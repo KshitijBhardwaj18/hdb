@@ -1,3 +1,6 @@
+cluster:
+  enabled: true
+
 organization: cortexai
 
 tenantId: tenant-1

@@ -1,3 +1,4 @@
+{{- if .Values.cluster.enabled }}
 {{- $fullName := printf "%s-%s-%s" .Values.clusterName .Values.organization .Values.tenantId}}
 apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
@@ -70,3 +71,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.sentinelNode.storage.size }}
+{{- end }}
