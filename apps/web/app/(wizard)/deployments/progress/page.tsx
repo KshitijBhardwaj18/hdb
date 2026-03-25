@@ -245,9 +245,6 @@ export default function DeploymentProgressPage() {
       ? 'Destroying Infrastructure'
       : 'Deploying Your Cluster';
 
-  const failedEvent = [...events].reverse().find((e) =>
-    e.event_type === 'deploy_failed' || e.event_type === 'destroy_failed',
-  );
   const subtitle = isFailed
     ? 'Something went wrong. Check the logs below for details.'
     : isDestroy
@@ -524,7 +521,7 @@ export default function DeploymentProgressPage() {
               </>
             )}
           </>
-        ) : (
+        ) : !isTerminal ? (
           <button
             onClick={() => setShowStopConfirm(true)}
             className='rounded-lg bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700'
@@ -532,7 +529,7 @@ export default function DeploymentProgressPage() {
           >
             {isDestroy ? 'Stop Destroy' : 'Stop Deployment'}
           </button>
-        )}
+        ) : null}
       </div>
 
       {/* Stop Deployment Confirmation Modal */}

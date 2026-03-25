@@ -43,11 +43,11 @@ dataNode:
       cpu: '1500m'
       memory: '12Gi'
   nodeSelector:
-    role: memory-db-large-scalable
+    role: falkordb
   tolerations:
     - key: 'workload'
       operator: 'Equal'
-      value: 'database-large-scalable'
+      value: 'falkordb'
       effect: 'NoSchedule'
   storage:
     storageClassName: falkordb-prod-gp3

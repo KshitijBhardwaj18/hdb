@@ -284,6 +284,26 @@ volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete
 FALKORDB_GEN_SC_EOF
 
+echo "==> Creating Milvus StorageClass..."
+cat <<'MILVUS_SC_EOF' | kubectl apply -f -
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: milvus-storage
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+  fsType: ext4
+  encrypted: "true"
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+MILVUS_SC_EOF
+
 echo "==> Verifying FalkorDB StorageClasses..."
 kubectl get storageclass | grep falkordb
 
@@ -309,7 +329,7 @@ spec:
       requirements:
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["m6i.medium", "m6i.large", "m6i.xlarge", "m6a.medium", "m6a.large", "m6a.xlarge", "m7i.medium", "m7i.large"]
+          values: ["t3.medium", "t3.large", "t3.xlarge", "t3a.medium", "t3a.large", "m5.large", "m5.xlarge", "m5a.large", "m6i.medium", "m6i.large", "m6i.xlarge", "m6a.medium", "m6a.large", "m6a.xlarge", "m7i.medium", "m7i.large"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
@@ -322,12 +342,12 @@ spec:
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
-  name: memory-pool-xlarge
+  name: falkordb-pool
 spec:
   template:
     metadata:
       labels:
-        role: memory-db-large-scalable
+        role: falkordb
     spec:
       nodeClassRef:
         group: karpenter.k8s.aws
@@ -336,13 +356,80 @@ spec:
       requirements:
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["r6i.large", "r6i.xlarge", "r6i.2xlarge", "r6a.large", "r6a.xlarge", "r6a.2xlarge"]
+          values: ["r6i.large", "r6i.xlarge", "r6i.2xlarge", "r6a.large", "r6a.xlarge", "r6a.2xlarge", "r8i.xlarge"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
       taints:
         - key: workload
-          value: database-large-scalable
+          value: falkordb
+          effect: NoSchedule
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30m
+    budgets:
+      - nodes: "0"
+        reasons:
+          - Drifted
+          - Underutilized
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: milvus-general
+spec:
+  template:
+    metadata:
+      labels:
+        role: milvus-general
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["m6i.large", "m6i.xlarge", "m6a.large", "m6a.xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      taints:
+        - key: workload
+          value: milvus-general
+          effect: NoSchedule
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30m
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: milvus-compute-nvme
+spec:
+  template:
+    metadata:
+      labels:
+        role: milvus-compute-nvme
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["r6i.xlarge", "r6i.2xlarge", "r6a.xlarge", "r6a.2xlarge", "r8id.xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      taints:
+        - key: workload
+          value: milvus-compute-nvme
           effect: NoSchedule
   limits:
     cpu: 100

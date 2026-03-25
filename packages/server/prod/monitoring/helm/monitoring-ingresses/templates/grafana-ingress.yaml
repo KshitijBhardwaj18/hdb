@@ -10,19 +10,19 @@ metadata:
     acme.cert-manager.io/http01-edit-in-place: 'true'
     nginx.org/redirect-to-https: 'false'
 spec:
-  ingressClassName: { { .Values.ingressClassName } }
+  ingressClassName: {{.Values.ingressClassName}}
   tls:
     - hosts:
-        - { { .Values.grafana.host } }
+        - {{.Values.grafana.host}}
       secretName: grafana-tls
   rules:
-    - host: { { .Values.grafana.host } }
+    - host: {{.Values.grafana.host}}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: { { .Values.grafana.serviceName } }
+                name: {{.Values.grafana.serviceName}}
                 port:
-                  number: { { .Values.grafana.servicePort } }
+                  number: {{.Values.grafana.servicePort}}

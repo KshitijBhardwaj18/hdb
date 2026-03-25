@@ -18,67 +18,84 @@ storageClass:
   reclaimPolicy: Retain
 
 nodeSelector:
-  role: memory-db-large-scalable
+  role: milvus-general
 
 tolerations:
   - key: workload
     operator: Equal
-    value: database-large-scalable
+    value: milvus-general
+    effect: NoSchedule
+
+queryNodeSelector:
+  role: milvus-compute-nvme
+
+queryNodeTolerations:
+  - key: workload
+    operator: Equal
+    value: milvus-compute-nvme
     effect: NoSchedule
 
 milvus:
   mode: cluster
+
   config:
     logLevel: info
     authEnabled: true
     maxVectorFieldNum: 10
+
   components:
+    image: milvusdb/milvus:v2.6.11
     proxy:
       replicas: 2
       serviceType: ClusterIP
       resources:
         requests:
-          cpu: '500m'
-          memory: '1Gi'
+          cpu: "250m"
+          memory: "512Mi"
         limits:
-          cpu: '2'
-          memory: '4Gi'
+          cpu: "2"
+          memory: "4Gi"
+
     queryNode:
       replicas: 2
       resources:
         requests:
-          cpu: '500m'
-          memory: '2Gi'
+          cpu: "1"
+          memory: "2Gi"
         limits:
-          cpu: '4'
-          memory: '10Gi'
+          cpu: "4"
+          memory: "8Gi"
+
     dataNode:
       replicas: 2
       resources:
         requests:
-          cpu: '500m'
-          memory: '1Gi'
+          cpu: "500m"
+          memory: "1Gi"
         limits:
-          cpu: '2'
-          memory: '4Gi'
-    indexNode:
-      replicas: 1
-      resources:
-        requests:
-          cpu: '500m'
-          memory: '1Gi'
-        limits:
-          cpu: '4'
-          memory: '8Gi'
+          cpu: "4"
+          memory: "8Gi"
+
     mixCoord:
       replicas: 1
       resources:
         requests:
-          cpu: '500m'
-          memory: '512Mi'
+          cpu: "200m"
+          memory: "512Mi"
         limits:
-          cpu: '2'
-          memory: '2Gi'
+          cpu: "2"
+          memory: "2Gi"
+
+    streamingNode:
+      replicas: 2
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+
   dependencies:
     etcd:
       deletionPolicy: Delete
@@ -87,98 +104,62 @@ milvus:
       storageSize: 10Gi
       resources:
         requests:
-          cpu: '100m'
-          memory: '512Mi'
+          cpu: "200m"
+          memory: "512Mi"
         limits:
-          cpu: '1'
-          memory: '2Gi'
-    minio:
-      deletionPolicy: Delete
-      pvcDeletion: false
-      mode: distributed
-      replicas: 4
-      storageSize: 100Gi
-      resources:
-        requests:
-          cpu: '100m'
-          memory: '512Mi'
-        limits:
-          cpu: '2'
-          memory: '4Gi'
+          cpu: "1"
+          memory: "2Gi"
+
+    s3:
+      enabled: true
+      region: us-east-1
+      bucketName: ""
+
     msgStream:
-      type: pulsar
-    pulsar:
-      deletionPolicy: Delete
-      pvcDeletion: false
-      proxy:
-        replicas: 1
-        resources:
-          requests:
-            cpu: '100m'
-            memory: '256Mi'
-      bookkeeper:
-        replicas: 2
-        journalSize: 20Gi
-        ledgersSize: 50Gi
-        resources:
-          requests:
-            cpu: '100m'
-            memory: '512Mi'
-      zookeeper:
-        replicas: 1
-        storageSize: 10Gi
-        resources:
-          requests:
-            cpu: '100m'
-            memory: '256Mi'
-      broker:
-        replicas: 1
-        resources:
-          requests:
-            cpu: '100m'
-            memory: '512Mi'
+      type: woodpecker
 
 ingress:
   className: nginx-inc
-  domain: milvusdb.usecortex.opengig.work
-  tlsSecretName: ''
+  domain: milvusdb.usecortex.ai
+  tlsSecretName: ""
+
   grpc:
-    enabled: false
-    proxyConnectTimeout: '60s'
-    proxyReadTimeout: '300s'
-    proxySendTimeout: '300s'
+    enabled: true
+    proxyConnectTimeout: "60s"
+    proxyReadTimeout: "600s"
+    proxySendTimeout: "600s"
     annotations: {}
+
   webui:
-    enabled: false
-    proxyConnectTimeout: '60s'
-    proxyReadTimeout: '300s'
-    proxySendTimeout: '300s'
-    clientMaxBodySize: '100m'
+    enabled: true
+    proxyConnectTimeout: "60s"
+    proxyReadTimeout: "300s"
+    proxySendTimeout: "300s"
+    clientMaxBodySize: "100m"
     annotations: {}
+
   attu:
     enabled: true
-    proxyConnectTimeout: '60s'
-    proxyReadTimeout: '300s'
-    proxySendTimeout: '300s'
-    clientMaxBodySize: '100m'
+    proxyConnectTimeout: "60s"
+    proxyReadTimeout: "300s"
+    proxySendTimeout: "300s"
+    clientMaxBodySize: "100m"
     annotations: {}
 
 attu:
   enabled: true
+  replicas: 1
   image:
     repository: zilliz/attu
     tag: v2.4
-  replicas: 1
   logLevel: info
-  nodeSelector:
-    role: general
   resources:
     requests:
-      cpu: '100m'
-      memory: '256Mi'
+      cpu: "100m"
+      memory: "256Mi"
     limits:
-      cpu: '500m'
-      memory: '512Mi'
+      cpu: "500m"
+      memory: "512Mi"
 
 certificate:
   create: false

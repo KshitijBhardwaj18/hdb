@@ -10,19 +10,19 @@ metadata:
     acme.cert-manager.io/http01-edit-in-place: 'true'
     nginx.org/redirect-to-https: 'false'
 spec:
-  ingressClassName: { { .Values.ingressClassName } }
+  ingressClassName: {{.Values.ingressClassName}}
   tls:
     - hosts:
-        - { { .Values.prometheus.host } }
+        - {{.Values.prometheus.host}}
       secretName: prometheus-tls
   rules:
-    - host: { { .Values.prometheus.host } }
+    - host: {{.Values.prometheus.host}}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: { { .Values.prometheus.serviceName } }
+                name: {{.Values.prometheus.serviceName}}
                 port:
-                  number: { { .Values.prometheus.servicePort } }
+                  number: {{.Values.prometheus.servicePort}}

@@ -55,7 +55,7 @@ export function StepReview() {
           {data.mongoDbMode === 'atlas' && (
             <>
               <ReviewRow label='Atlas Organization ID' value={data.atlasOrgId || '\u2014'} />
-              <ReviewRow label='Atlas Project Name' value={data.atlasProjectName || `${data.customerId}-cortex`} />
+              <ReviewRow label='Atlas Project Name' value={data.atlasProjectName || `${data.customerId}-hydradb`} />
               <ReviewRow label='Cluster Tier' value={data.mongoDbTier || '\u2014'} />
               <ReviewRow label='DB Username' value={data.mongoDbUsername || '\u2014'} />
               <ReviewRow label='Region' value={`Auto (${data.awsRegion})`} />

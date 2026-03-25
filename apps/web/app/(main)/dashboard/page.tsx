@@ -2,10 +2,12 @@
 
 import { Rocket, RefreshCw, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { EmptyDeployment } from '@/components/dashboard/EmptyDeployment';
 import { DeploymentOverview } from '@/components/dashboard/DeploymentOverview';
 import { useConfigs } from '@/hooks/use-deployment-config';
-import { useAllDeployments, useDeploymentStatus } from '@/hooks/use-deployment';
+import { useAllDeployments, useDeploymentStatus, useDestroy } from '@/hooks/use-deployment';
 import { DeploymentStatus } from '@/types/deployment.types';
 import type { CustomerConfigResponse, CustomerDeployment } from '@/types/deployment.types';
 
@@ -101,8 +103,23 @@ function DeploymentCard({
   config: CustomerConfigResponse;
   deployment: CustomerDeployment | undefined;
 }) {
+  const router = useRouter();
+  const destroyMutation = useDestroy();
+  const [showDestroyConfirm, setShowDestroyConfirm] = useState(false);
   const state = getDeploymentState(deployment);
   const isActive = state === 'deploying' || state === 'destroying';
+
+  const handleDestroy = () => {
+    destroyMutation.mutate(
+      { customerId: config.customer_id, environment: config.environment },
+      {
+        onSuccess: () => {
+          setShowDestroyConfirm(false);
+          router.push(`/deployments/progress?customerId=${encodeURIComponent(config.customer_id)}&environment=${encodeURIComponent(config.environment)}`);
+        },
+      },
+    );
+  };
 
   return (
     <div
@@ -184,14 +201,14 @@ function DeploymentCard({
               <AlertCircle className='h-3.5 w-3.5' />
               Logs
             </Link>
-            <Link
-              href='/settings'
+            <button
+              onClick={() => setShowDestroyConfirm(true)}
               className='flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700'
               style={{ fontFamily: 'Satoshi, sans-serif' }}
             >
               <Trash2 className='h-3.5 w-3.5' />
               Retry Destroy
-            </Link>
+            </button>
           </div>
         )}
         {state === 'continue' && (
@@ -221,7 +238,7 @@ function DeploymentCard({
         >
           <p className='text-sm text-red-400' style={{ fontFamily: 'Satoshi, sans-serif' }}>
             {state === 'destroy-failed'
-              ? 'Infrastructure destroy failed. Retry from Settings.'
+              ? 'Infrastructure destroy failed. You can retry the destroy above.'
               : 'Deployment failed. Retry or edit your configuration.'}
           </p>
         </div>
@@ -239,11 +256,54 @@ function DeploymentCard({
           </p>
         </div>
       )}
+
+      {/* Destroy confirmation modal */}
+      {showDestroyConfirm && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60'>
+          <div
+            className='flex w-full max-w-[440px] flex-col gap-5 rounded-lg bg-[#222222] p-6'
+            style={{ border: '0.5px solid #5B5B5B' }}
+          >
+            <div className='flex flex-col gap-2'>
+              <div className='flex items-center gap-2'>
+                <AlertCircle className='h-5 w-5 text-red-400' />
+                <h3 className='text-lg font-semibold text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                  Retry Destroy
+                </h3>
+              </div>
+              <p className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                This will attempt to destroy all infrastructure for <span className='text-white'>{config.customer_id}</span> again.
+                Any remaining AWS resources will be cleaned up.
+              </p>
+            </div>
+            <div className='flex items-center justify-end gap-3'>
+              <button
+                onClick={() => setShowDestroyConfirm(false)}
+                className='rounded-lg px-4 py-2 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+                style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDestroy}
+                disabled={destroyMutation.isPending}
+                className='rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-60'
+                style={{ fontFamily: 'Satoshi, sans-serif' }}
+              >
+                {destroyMutation.isPending ? 'Starting...' : 'Confirm Destroy'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const destroyMutation = useDestroy();
+  const [showDestroyConfirm, setShowDestroyConfirm] = useState(false);
   const { data: configs, isLoading: configsLoading } = useConfigs();
   const { data: allDeployments, isLoading: deploymentsLoading } = useAllDeployments();
 
@@ -358,14 +418,14 @@ export default function DashboardPage() {
                   <AlertCircle className='h-4 w-4' />
                   View Logs
                 </Link>
-                <Link
-                  href={`/settings`}
+                <button
+                  onClick={() => setShowDestroyConfirm(true)}
                   className='flex items-center gap-2 rounded-lg bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700'
                   style={{ fontFamily: 'Satoshi, sans-serif' }}
                 >
                   <Trash2 className='h-4 w-4' />
                   Retry Destroy
-                </Link>
+                </button>
               </div>
             ) : (
               <Link
@@ -388,13 +448,63 @@ export default function DashboardPage() {
               <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-red-400' />
               <p className='text-sm text-red-400' style={{ fontFamily: 'Satoshi, sans-serif' }}>
                 {state === 'destroy-failed'
-                  ? 'Infrastructure destroy failed. You can retry from Settings or view the logs for details.'
+                  ? 'Infrastructure destroy failed. You can retry the destroy or view the logs for details.'
                   : 'Deployment failed. You can retry or edit your configuration and try again.'}
               </p>
             </div>
           </div>
         )}
         <DeploymentOverview deployment={deploymentInfo} />
+
+        {/* Destroy confirmation modal */}
+        {showDestroyConfirm && firstConfig && (
+          <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60'>
+            <div
+              className='flex w-full max-w-[440px] flex-col gap-5 rounded-lg bg-[#222222] p-6'
+              style={{ border: '0.5px solid #5B5B5B' }}
+            >
+              <div className='flex flex-col gap-2'>
+                <div className='flex items-center gap-2'>
+                  <AlertCircle className='h-5 w-5 text-red-400' />
+                  <h3 className='text-lg font-semibold text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                    Retry Destroy
+                  </h3>
+                </div>
+                <p className='text-sm text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                  This will attempt to destroy all infrastructure for <span className='text-white'>{firstConfig.customer_id}</span> again.
+                  Any remaining AWS resources will be cleaned up.
+                </p>
+              </div>
+              <div className='flex items-center justify-end gap-3'>
+                <button
+                  onClick={() => setShowDestroyConfirm(false)}
+                  className='rounded-lg px-4 py-2 text-sm font-medium text-[#A7A7A7] transition-colors hover:text-white'
+                  style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    destroyMutation.mutate(
+                      { customerId: firstConfig.customer_id, environment: firstConfig.environment },
+                      {
+                        onSuccess: () => {
+                          setShowDestroyConfirm(false);
+                          router.push(`/deployments/progress?customerId=${encodeURIComponent(firstConfig.customer_id)}&environment=${encodeURIComponent(firstConfig.environment)}`);
+                        },
+                      },
+                    );
+                  }}
+                  disabled={destroyMutation.isPending}
+                  className='rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-60'
+                  style={{ fontFamily: 'Satoshi, sans-serif' }}
+                >
+                  {destroyMutation.isPending ? 'Starting...' : 'Confirm Destroy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

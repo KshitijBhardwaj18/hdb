@@ -7,7 +7,7 @@ const deploySteps = [
   { step: 1, text: 'Network infrastructure is created in your AWS account' },
   { step: 2, text: 'Kubernetes cluster is provisioned with your configuration' },
   { step: 3, text: 'All applications and services are installed and configured' },
-  { step: 4, text: 'Your cluster is ready to use (typically takes 10-15 minutes)' },
+  { step: 4, text: 'Your cluster is ready to use (typically takes 30-40 minutes)' },
 ];
 
 export function EmptyDeployment() {

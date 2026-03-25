@@ -139,6 +139,22 @@ aws.s3.BucketPublicAccessBlock(
     opts=pulumi.ResourceOptions(provider=aws_provider),
 )
 
+# Milvus object storage bucket (replaces MinIO)
+milvus_bucket = aws.s3.BucketV2(
+    f"{config.customer_id}-milvus-bucket",
+    opts=pulumi.ResourceOptions(provider=customer_aws),
+)
+
+aws.s3.BucketPublicAccessBlock(
+    f"{config.customer_id}-milvus-bucket-public-access",
+    bucket=milvus_bucket.id,
+    block_public_acls=True,
+    block_public_policy=True,
+    ignore_public_acls=True,
+    restrict_public_buckets=True,
+    opts=pulumi.ResourceOptions(provider=customer_aws),
+)
+
 # DynamoDB Tables
 
 _env = config.environment  # "prod" or "staging"
@@ -588,6 +604,7 @@ _app_secret_map: dict[str, pulumi.Output] = {
     "user_details_table": user_details_table.name,
     "users_to_sign_up_table": users_to_sign_up_table.name,
     "token_bucket_table": token_bucket_table.name,
+    "milvus_bucket": milvus_bucket.bucket,
 }
 
 if kafka_bootstrap_output:
@@ -811,6 +828,7 @@ pulumi.export("nextjs_secret_arn", nextjs_secret.arn)
 
 pulumi.export("documents_bucket_name", documents_bucket.bucket)
 pulumi.export("local_sources_bucket_name", local_sources_bucket.bucket)
+pulumi.export("milvus_bucket_name", milvus_bucket.bucket)
 pulumi.export("cortex_users_table_name", cortex_users_table.name)
 pulumi.export("api_keys_table_name", api_keys_table.name)
 pulumi.export("user_metadata_table_name", user_metadata_table.name)

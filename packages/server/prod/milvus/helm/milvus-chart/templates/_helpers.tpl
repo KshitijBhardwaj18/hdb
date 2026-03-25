@@ -69,10 +69,10 @@ WebUI host: {org_id}-webui.milvusdb.usecortex.ai
 {{- end }}
 
 {{/*
-Attu host: {org_id}-attu.milvusdb.usecortex.ai
+Attu host: dashboard-{ingress.domain}
 */}}
 {{- define "milvus-tenant.attuHost" -}}
-{{- printf "%s-attu.%s" .Values.org_id .Values.ingress.domain }}
+{{- printf "dashboard-%s" .Values.ingress.domain }}
 {{- end }}
 
 {{/*
