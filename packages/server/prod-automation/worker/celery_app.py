@@ -140,6 +140,47 @@ def _cleanup_vpc_resources(
     logger.info("VPC resource cleanup done for %s", vpc_id)
 
 
+def _empty_milvus_s3_bucket_before_destroy(
+    region: str,
+    role_arn: str,
+    external_id: str,
+    customer_id: str,
+    session_name: str,
+    milvus_bucket_name: str | None,
+) -> None:
+    import boto3
+
+    sts = boto3.client("sts", region_name=region)
+    assumed = sts.assume_role(
+        RoleArn=role_arn,
+        ExternalId=external_id,
+        RoleSessionName=session_name,
+        DurationSeconds=3600,
+    )
+    creds = assumed["Credentials"]
+    cred_kwargs = {
+        "aws_access_key_id": creds["AccessKeyId"],
+        "aws_secret_access_key": creds["SecretAccessKey"],
+        "aws_session_token": creds["SessionToken"],
+    }
+    s3 = boto3.resource("s3", region_name=region, **cred_kwargs)
+
+    names: list[str] = []
+    if milvus_bucket_name:
+        names.append(milvus_bucket_name)
+    else:
+        for b in s3.buckets.all():
+            if f"{customer_id}-milvus" in b.name:
+                names.append(b.name)
+
+    for name in names:
+        try:
+            s3.Bucket(name).objects.all().delete()
+            logger.info("Emptied Milvus bucket %s", name)
+        except Exception as bucket_err:
+            logger.warning("Could not empty Milvus bucket %s: %s", name, bucket_err)
+
+
 class _LockRenewer:
     """Background thread that renews the DB lock every interval."""
 
@@ -482,6 +523,19 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
             logger.info("Post-cleanup done for %s", stack_name)
         except Exception as post_err:
             logger.warning("Post-cleanup failed (non-fatal): %s", post_err)
+
+        try:
+            _milvus_bucket = (outputs.get("milvus_bucket_name") or "").strip() or None
+            _empty_milvus_s3_bucket_before_destroy(
+                region=config.aws_config.region,
+                role_arn=config.aws_config.role_arn,
+                external_id=config.aws_config.external_id,
+                customer_id=customer_id,
+                session_name=f"byoc-milvus-bucket-empty-{customer_id}",
+                milvus_bucket_name=_milvus_bucket,
+            )
+        except Exception as bucket_err:
+            logger.warning("Milvus bucket cleanup failed (non-fatal): %s", bucket_err)
 
         # --- pulumi destroy ---
         db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING, "Running pulumi destroy")
