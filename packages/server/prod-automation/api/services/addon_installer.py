@@ -167,6 +167,10 @@ kind: EC2NodeClass
 metadata:
   name: default
 spec:
+  metadataOptions:
+    httpEndpoint: enabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
   amiSelectorTerms:
     - alias: al2023@latest
   subnetSelectorTerms:

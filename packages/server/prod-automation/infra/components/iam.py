@@ -78,6 +78,7 @@ class EksIamRoles(pulumi.ComponentResource):
             "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
             "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
             "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+            "arn:aws:iam::aws:policy/AmazonS3FullAccess",
         ]
 
         for i, policy_arn in enumerate(node_policies):
