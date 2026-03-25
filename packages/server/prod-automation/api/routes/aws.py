@@ -172,12 +172,17 @@ class TestAtlasRequest(BaseModel):
     atlas_client_id: str = Field(..., description="Atlas Service Account client ID")
     atlas_client_secret: str = Field(..., description="Atlas Service Account client secret")
     atlas_org_id: str = Field(..., description="Atlas Organization ID")
+    customer_id: str = Field(default="", description="Optional: check for existing project/user")
+    db_username: str = Field(default="", description="Optional: check if this database username exists")
 
 
 class TestAtlasSuccess(BaseModel):
     status: str = "connected"
     org_name: str
     project_count: int
+    project_exists: bool = False
+    db_user_exists: bool = False
+    warnings: list[str] = []
 
 
 @router.post(
@@ -224,7 +229,7 @@ async def test_atlas_connection(
 
         # Count projects
         projects_req = urllib.request.Request(
-            "https://cloud.mongodb.com/api/atlas/v2/groups?itemsPerPage=1"
+            "https://cloud.mongodb.com/api/atlas/v2/groups?itemsPerPage=100"
         )
         projects_req.add_header("Authorization", f"Bearer {access_token}")
         projects_req.add_header("Accept", "application/vnd.atlas.2023-01-01+json")
@@ -232,25 +237,64 @@ async def test_atlas_connection(
         projects_resp = json.loads(urllib.request.urlopen(projects_req).read())
         project_count = projects_resp.get("totalCount", 0)
 
+        # Check for existing project and db user
+        project_exists = False
+        db_user_exists = False
+        warnings: list[str] = []
+
+        if request.customer_id:
+            project_name = f"{request.customer_id}-cortex"
+            project_id = None
+            for p in projects_resp.get("results", []):
+                if p.get("name") == project_name:
+                    project_exists = True
+                    project_id = p.get("id")
+                    warnings.append(
+                        f"Atlas project '{project_name}' already exists. "
+                        "Delete it in Atlas console before deploying, or use a different customer ID."
+                    )
+                    break
+
+            if project_id and request.db_username:
+                try:
+                    user_req = urllib.request.Request(
+                        f"https://cloud.mongodb.com/api/atlas/v2/groups/{project_id}/databaseUsers/admin/{request.db_username}"
+                    )
+                    user_req.add_header("Authorization", f"Bearer {access_token}")
+                    user_req.add_header("Accept", "application/vnd.atlas.2023-01-01+json")
+                    urllib.request.urlopen(user_req)
+                    db_user_exists = True
+                    warnings.append(
+                        f"Database user '{request.db_username}' already exists in project '{project_name}'. "
+                        "Use a different username or delete the existing one."
+                    )
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        db_user_exists = False
+
         return TestAtlasSuccess(
             status="connected",
             org_name=org_name,
             project_count=project_count,
+            project_exists=project_exists,
+            db_user_exists=db_user_exists,
+            warnings=warnings,
         )
 
     except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        logger.warning("Atlas connection test failed: %s %s", e.code, body)
-        if e.code == 401:
-            detail = "Invalid credentials — check client ID and secret"
-        elif e.code == 403:
-            detail = "Access denied — check Service Account permissions"
-        elif e.code == 404:
-            detail = "Organization not found — check Organization ID"
-        else:
-            detail = f"Atlas API error ({e.code}): {body[:200]}"
-        raise HTTPException(status_code=403, detail=detail)
-
+        body = e.read().decode() if e.fp else ""
+        raise HTTPException(
+            status_code=403,
+            detail=TestConnectionFailure(
+                status="failed",
+                error=f"Atlas API returned {e.code}: {body}",
+            ).model_dump(),
+        )
     except Exception as e:
-        logger.exception("Unexpected error during Atlas connection test")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=403,
+            detail=TestConnectionFailure(
+                status="failed",
+                error=str(e),
+            ).model_dump(),
+        )

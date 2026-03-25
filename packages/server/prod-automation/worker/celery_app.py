@@ -184,7 +184,7 @@ def _init_worker(**kwargs):  # type: ignore[no-untyped-def]
 @celery_app.task(
     bind=True,
     name="byoc.deploy",
-    max_retries=3,
+    max_retries=0,
     acks_late=True,
 )
 def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: ignore[no-untyped-def]
@@ -204,6 +204,10 @@ def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: igno
         return {"status": "locked", "stack_name": stack_name}
 
     db.add_event(stack_name, DeploymentEventType.DEPLOY_LOCK_ACQUIRED, "Lock acquired, starting deployment")
+
+    # Clear stale events from previous attempts
+    db.clear_events(stack_name)
+
     renewer = _LockRenewer(stack_name)
     renewer.start()
 
@@ -368,17 +372,6 @@ def deploy_task(self, customer_id: str, environment: str) -> dict:  # type: igno
         )
         db.audit_log("deploy_failed", customer_id, environment=environment, details=str(e))
 
-        # Retry with exponential backoff: 30s, 120s, 300s
-        if self.request.retries < self.max_retries:
-            delay = 30 * (4 ** self.request.retries)  # 30, 120, 480
-            logger.info("Retrying deploy for %s in %ds (attempt %d)", stack_name, delay, self.request.retries + 2)
-            # Release lock so the retry can re-acquire it
-            db.release_lock(stack_name)
-            renewer.stop()
-            # Reset status to PENDING for retry
-            db.transition_deployment_status(stack_name=stack_name, to_status=DeploymentStatus.PENDING)
-            raise self.retry(countdown=delay, exc=e)
-
         return {"status": "failed", "stack_name": stack_name, "error": str(e)}
     finally:
         renewer.stop()
@@ -538,6 +531,46 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
 
         if result and result.summary.result == "succeeded":
             db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROY_SUCCEEDED, "Pulumi destroy completed")
+
+            # Force-delete any secrets stuck in scheduled deletion
+            try:
+                import boto3 as _boto3
+                _sts = _boto3.client("sts", region_name=config.aws_config.region)
+                _assumed = _sts.assume_role(
+                    RoleArn=config.aws_config.role_arn,
+                    ExternalId=config.aws_config.external_id,
+                    RoleSessionName=f"byoc-secret-cleanup-{customer_id}",
+                    DurationSeconds=3600,
+                )
+                _creds = _assumed["Credentials"]
+                _sm = _boto3.client("secretsmanager", region_name=config.aws_config.region,
+                    aws_access_key_id=_creds["AccessKeyId"],
+                    aws_secret_access_key=_creds["SecretAccessKey"],
+                    aws_session_token=_creds["SessionToken"])
+
+                for secret_name in [
+                    f"/byoc/{customer_id}/cortex-app",
+                    f"/byoc/{customer_id}/cortex-ingestion",
+                    f"/byoc/{customer_id}/nextjs",
+                    f"/byoc/{customer_id}/argocd-generated-tokens",
+                ]:
+                    try:
+                        resp = _sm.describe_secret(SecretId=secret_name)
+                        if resp.get("DeletedDate"):
+                            _sm.restore_secret(SecretId=secret_name)
+                            _sm.delete_secret(SecretId=secret_name, ForceDeleteWithoutRecovery=True)
+                            logger.info("Force-deleted scheduled secret %s", secret_name)
+                        else:
+                            _sm.delete_secret(SecretId=secret_name, ForceDeleteWithoutRecovery=True)
+                            logger.info("Force-deleted secret %s", secret_name)
+                    except _sm.exceptions.ResourceNotFoundException:
+                        pass
+                    except Exception as sec_err:
+                        logger.warning("Could not delete secret %s: %s", secret_name, sec_err)
+                logger.info("Secret cleanup done for %s", customer_id)
+            except Exception as sec_cleanup_err:
+                logger.warning("Secret cleanup failed (non-fatal): %s", sec_cleanup_err)
+
             db.transition_deployment_status(
                 stack_name=stack_name,
                 to_status=DeploymentStatus.DESTROYED,

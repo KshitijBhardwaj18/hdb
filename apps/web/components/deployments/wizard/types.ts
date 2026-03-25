@@ -59,6 +59,9 @@ export interface DeploymentFormData {
   kafkaAuthType: string;
   kafkaUsername: string;
   kafkaPassword: string;
+
+  // Atlas warning state (set by StepAddons after test)
+  atlasHasWarnings: boolean;
 }
 
 export const DEFAULT_FORM_DATA: DeploymentFormData = {
@@ -111,6 +114,7 @@ export const DEFAULT_FORM_DATA: DeploymentFormData = {
   kafkaAuthType: 'IAM',
   kafkaUsername: '',
   kafkaPassword: '',
+  atlasHasWarnings: false,
 };
 
 export const WIZARD_STEPS = [

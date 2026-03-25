@@ -311,12 +311,17 @@ export interface AtlasTestConnectionRequest {
   atlas_client_id: string;
   atlas_client_secret: string;
   atlas_org_id: string;
+  customer_id?: string;
+  db_username?: string;
 }
 
 export interface AtlasTestConnectionSuccess {
   status: string;
   org_name: string;
   project_count: number;
+  project_exists: boolean;
+  db_user_exists: boolean;
+  warnings: string[];
 }
 
 export type AwsTestConnectionResponse = AwsTestConnectionSuccess | AwsTestConnectionFailure;

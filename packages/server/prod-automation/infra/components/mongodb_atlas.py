@@ -14,59 +14,6 @@ class MongoAtlasResult:
     project_id: pulumi.Output[str]
 
 
-def _find_existing_project(
-    atlas_provider: atlas.Provider,
-    project_name: str,
-) -> Optional[str]:
-    """Find an existing Atlas project by name. Returns project ID or None."""
-    try:
-        projects = atlas.get_projects(
-            opts=pulumi.InvokeOptions(provider=atlas_provider),
-        )
-        for p in projects.results:
-            if p.name == project_name:
-                return p.id
-    except Exception:
-        pass
-    return None
-
-
-def _find_existing_cluster(
-    atlas_provider: atlas.Provider,
-    project_id: str,
-    cluster_name: str,
-) -> Optional[str]:
-    """Find an existing Atlas cluster by name. Returns cluster ID or None."""
-    try:
-        cluster = atlas.get_cluster(
-            project_id=project_id,
-            name=cluster_name,
-            opts=pulumi.InvokeOptions(provider=atlas_provider),
-        )
-        return cluster.cluster_id
-    except Exception:
-        return None
-
-
-def _find_existing_db_user(
-    atlas_provider: atlas.Provider,
-    project_id: str,
-    username: str,
-    auth_db: str = "admin",
-) -> bool:
-    """Check if a database user already exists."""
-    try:
-        atlas.get_database_user(
-            project_id=project_id,
-            username=username,
-            auth_database_name=auth_db,
-            opts=pulumi.InvokeOptions(provider=atlas_provider),
-        )
-        return True
-    except Exception:
-        return False
-
-
 def provision_atlas_cluster(
     customer_id: str,
     mongo_config,
@@ -78,10 +25,10 @@ def provision_atlas_cluster(
     aws_region: str,
     aws_provider: aws.Provider,
 ) -> MongoAtlasResult:
-    """Provision MongoDB Atlas cluster with VPC peering.
+    """Provision MongoDB Atl cluster with VPC peering.
 
     Supports two modes:
-    - 'atlas': Create new project + cluster + peering (idempotent — imports existing resources)
+    - 'atlas': Create new project + cluster + db user + peering
     - 'atlas-peering': Peer to existing project/cluster
     """
 
@@ -98,72 +45,29 @@ def provision_atlas_cluster(
         project_name = mongo_config.atlas_project_name or f"{customer_id}-cortex"
         cluster_name = f"{customer_id}-cortex"
 
-        # --- Project (idempotent) ---
-        existing_project_id = _find_existing_project(atlas_provider, project_name)
-        if existing_project_id:
-            project = atlas.Project(
-                f"{customer_id}-atlas-project",
-                name=project_name,
-                org_id=mongo_config.atlas_org_id,
-                opts=pulumi.ResourceOptions(
-                    provider=atlas_provider,
-                    import_=existing_project_id,
-                ),
-            )
-        else:
-            project = atlas.Project(
-                f"{customer_id}-atlas-project",
-                name=project_name,
-                org_id=mongo_config.atlas_org_id,
-                opts=opts,
-            )
+        # --- Project ---
+        project = atlas.Project(
+            f"{customer_id}-atlas-project",
+            name=project_name,
+            org_id=mongo_config.atlas_org_id,
+            opts=opts,
+        )
         project_id = project.id
 
-        # --- Cluster (idempotent) ---
-        existing_cluster_id = (
-            _find_existing_cluster(atlas_provider, existing_project_id, cluster_name)
-            if existing_project_id
-            else None
+        # --- Cluster ---
+        cluster = atlas.Cluster(
+            f"{customer_id}-atlas-cluster",
+            project_id=project_id,
+            name=cluster_name,
+            provider_name="AWS",
+            provider_instance_size_name=mongo_config.cluster_tier,
+            provider_region_name=mongo_config.cluster_region,
+            disk_size_gb=mongo_config.disk_size_gb,
+            cluster_type="REPLICASET",
+            opts=opts,
         )
-        if existing_cluster_id:
-            cluster = atlas.Cluster(
-                f"{customer_id}-atlas-cluster",
-                project_id=project_id,
-                name=cluster_name,
-                provider_name="AWS",
-                provider_instance_size_name=mongo_config.cluster_tier,
-                provider_region_name=mongo_config.cluster_region,
-                disk_size_gb=mongo_config.disk_size_gb,
-                cluster_type="REPLICASET",
-                opts=pulumi.ResourceOptions(
-                    provider=atlas_provider,
-                    import_=existing_cluster_id,
-                ),
-            )
-        else:
-            cluster = atlas.Cluster(
-                f"{customer_id}-atlas-cluster",
-                project_id=project_id,
-                name=cluster_name,
-                provider_name="AWS",
-                provider_instance_size_name=mongo_config.cluster_tier,
-                provider_region_name=mongo_config.cluster_region,
-                disk_size_gb=mongo_config.disk_size_gb,
-                cluster_type="REPLICASET",
-                opts=opts,
-            )
 
-        # --- Database User (idempotent) ---
-        user_exists = (
-            _find_existing_db_user(atlas_provider, existing_project_id, mongo_config.db_username)
-            if existing_project_id
-            else False
-        )
-        db_user_import_id = (
-            f"{existing_project_id}-{mongo_config.db_username}-admin"
-            if user_exists and existing_project_id
-            else None
-        )
+        # --- Database User ---
         db_user = atlas.DatabaseUser(
             f"{customer_id}-atlas-db-user",
             project_id=project_id,
@@ -176,10 +80,7 @@ def provision_atlas_cluster(
                     database_name="admin",
                 ),
             ],
-            opts=pulumi.ResourceOptions(
-                provider=atlas_provider,
-                import_=db_user_import_id,
-            ) if db_user_import_id else opts,
+            opts=opts,
         )
 
         connection_string = cluster.connection_strings.apply(
@@ -236,12 +137,14 @@ def provision_atlas_cluster(
                 opts=pulumi.InvokeOptions(provider=atlas_provider),
             )
             for p in peerings.results:
-                if p.route_table_cidr_block == vpc_cidr:
+                if getattr(p, "route_table_cidr_block", None) == vpc_cidr:
+                    peering_id = getattr(p, "peer_id", None) or getattr(p, "id", None)
+                    if not peering_id:
+                        continue
                     pulumi.log.warn(
-                        f"Found stale peering {p.id} with CIDR {vpc_cidr} "
-                        f"(status: {p.status_name}). Deleting via Atlas API..."
+                        f"Found stale peering {peering_id} with CIDR {vpc_cidr} "
+                        f"(status: {getattr(p, 'status_name', 'unknown')}). Deleting via Atlas API..."
                     )
-                    # Delete stale peering via Atlas API directly
                     import urllib.request
                     import urllib.parse
                     import json
@@ -260,16 +163,16 @@ def provision_atlas_cluster(
                     access_token = token_resp["access_token"]
 
                     del_req = urllib.request.Request(
-                        f"https://cloud.mongodb.com/api/atlas/v2/groups/{pid}/peers/{p.id}",
+                        f"https://cloud.mongodb.com/api/atlas/v2/groups/{pid}/peers/{peering_id}",
                         method="DELETE",
                     )
                     del_req.add_header("Authorization", f"Bearer {access_token}")
                     del_req.add_header("Accept", "application/vnd.atlas.2023-01-01+json")
                     try:
                         urllib.request.urlopen(del_req)
-                        pulumi.log.info(f"Deleted stale peering {p.id}")
+                        pulumi.log.info(f"Deleted stale peering {peering_id}")
                     except Exception as del_err:
-                        pulumi.log.warn(f"Could not delete stale peering {p.id}: {del_err}")
+                        pulumi.log.warn(f"Could not delete stale peering {peering_id}: {del_err}")
         except Exception as e:
             pulumi.log.warn(f"Could not check for stale peerings: {e}")
 

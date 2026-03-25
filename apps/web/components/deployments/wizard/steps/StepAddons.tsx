@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useFormContext } from 'react-hook-form';
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTestAtlasConnection } from '@/hooks/use-aws-connection';
 import type { DeploymentFormData } from '../types';
@@ -154,6 +154,15 @@ export function StepAddons() {
                       atlas_client_id: clientId,
                       atlas_client_secret: clientSecret,
                       atlas_org_id: orgId,
+                      customer_id: getValues('customerId') || '',
+                      db_username: getValues('mongoDbUsername') || '',
+                    }, {
+                      onSuccess: (data) => {
+                        setValue('atlasHasWarnings', data.project_exists || data.db_user_exists);
+                      },
+                      onError: () => {
+                        setValue('atlasHasWarnings', false);
+                      },
                     });
                   }}
                   disabled={testAtlas.isPending}
@@ -170,10 +179,17 @@ export function StepAddons() {
                   )}
                 </button>
 
-                {testAtlas.isSuccess && (
+                {testAtlas.isSuccess && !testAtlas.data.project_exists && !testAtlas.data.db_user_exists && (
                   <div className="flex items-center gap-2 text-sm text-emerald-400">
                     <CheckCircle2 className="h-4 w-4" />
                     <span style={font}>Connected to {testAtlas.data.org_name}</span>
+                  </div>
+                )}
+
+                {testAtlas.isSuccess && (testAtlas.data.project_exists || testAtlas.data.db_user_exists) && (
+                  <div className="flex items-center gap-2 text-sm text-amber-400">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span style={font}>Connected with warnings</span>
                   </div>
                 )}
 
@@ -184,6 +200,19 @@ export function StepAddons() {
                   </div>
                 )}
               </div>
+
+              {testAtlas.isSuccess && testAtlas.data.warnings.length > 0 && (
+                <div
+                  className="flex flex-col gap-2 rounded-lg px-4 py-3"
+                  style={{ backgroundColor: 'rgba(251, 191, 36, 0.08)', border: '0.5px solid rgba(251, 191, 36, 0.3)' }}
+                >
+                  {testAtlas.data.warnings.map((warning, i) => (
+                    <p key={i} className="text-xs text-amber-400" style={font}>
+                      {warning}
+                    </p>
+                  ))}
+                </div>
+              )}
 
               {testAtlas.isError && !testAtlas.isPending && (
                 <div

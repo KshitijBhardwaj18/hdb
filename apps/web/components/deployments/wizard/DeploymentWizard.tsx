@@ -114,6 +114,7 @@ export function DeploymentWizard() {
   const createConfig = useCreateConfig();
   const updateConfig = useUpdateConfig();
   const deploy = useDeploy();
+  const atlasHasWarnings = watch('atlasHasWarnings');
 
   const validateCurrentStep = useCallback(async () => {
     // Step 5 uses discriminated union — validate with schema directly
@@ -316,7 +317,7 @@ export function DeploymentWizard() {
                   const msg = firstError?.message || firstError?.root?.message || 'Please fix form errors before deploying.';
                   toast.error(typeof msg === 'string' ? msg : 'Please fix form errors before deploying.');
                 })}
-                disabled={isDeploying}
+                disabled={isDeploying || atlasHasWarnings}
                 className='flex items-center gap-2 rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
                 style={{ fontFamily: 'Satoshi, sans-serif' }}
               >
