@@ -42,9 +42,40 @@ milvus:
   mode: cluster
 
   config:
+    newSchema: true
     logLevel: info
     authEnabled: true
     maxVectorFieldNum: 10
+
+    queryNode:
+      cache:
+        warmup: async
+        memoryLimit: 4294967296
+        readAheadPolicy: willneed
+      mmap:
+        vectorField: false
+        vectorIndex: false
+        scalarField: true
+        scalarIndex: true
+        chunkCache: true
+      segcore:
+        chunkRows: 4096
+        knowhereThreadPoolNumRatio: 4
+        interimIndex:
+          enableIndex: true
+          nlist: 128
+          nprobe: 32
+
+    dataCoord:
+      segment:
+        maxSize: 2048
+        sealProportion: 0.12
+        expansionRate: 1.25
+
+    common:
+      simdType: avx512
+      gracefulTime: 5000
+      gracefulStopTimeout: 30
 
   components:
     image: milvusdb/milvus:v2.6.11
@@ -156,6 +187,8 @@ attu:
     repository: zilliz/attu
     tag: v2.4
   logLevel: info
+  nodeSelector: {}
+  tolerations: []
   resources:
     requests:
       cpu: "100m"

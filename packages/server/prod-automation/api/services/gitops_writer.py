@@ -217,6 +217,7 @@ queryNodeTolerations:
 
 milvus:
   config:
+    newSchema: true
     maxVectorFieldNum: 10
   components:
     image: milvusdb/milvus:v2.6.11
