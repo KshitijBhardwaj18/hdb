@@ -59,10 +59,11 @@ def _cleanup_vpc_resources(
     vpc_id: str,
     session_name: str,
 ) -> None:
-    """Clean up instances, load balancers, and ENIs in a VPC via AWS API.
+    """Clean up ALL resources in a VPC via AWS API.
 
     Used before/between Pulumi destroy attempts to clear resources that
-    block security group deletion (orphaned ENIs from VPC CNI, lingering LBs).
+    block VPC and security group deletion. Handles: instances, load balancers,
+    VPC endpoints, ENIs, and non-default security groups.
     Safe because the VPC is unique to the customer deployment.
     """
     if not vpc_id:
@@ -112,11 +113,23 @@ def _cleanup_vpc_resources(
             except Exception:
                 pass
 
-    # 3. Wait for ENI release
+    # 3. Delete VPC endpoints
+    try:
+        endpoints = ec2.describe_vpc_endpoints(
+            Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+        ).get("VpcEndpoints", [])
+        endpoint_ids = [ep["VpcEndpointId"] for ep in endpoints]
+        if endpoint_ids:
+            ec2.delete_vpc_endpoints(VpcEndpointIds=endpoint_ids)
+            logger.info("Deleted %d VPC endpoints", len(endpoint_ids))
+    except Exception as e:
+        logger.warning("VPC endpoint cleanup failed: %s", e)
+
+    # 4. Wait for ENI release
     logger.info("Waiting 60s for ENI release...")
     time.sleep(60)
 
-    # 4. Detach and delete orphaned ENIs
+    # 5. Detach and delete orphaned ENIs
     enis = ec2.describe_network_interfaces(
         Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
     ).get("NetworkInterfaces", [])
@@ -136,6 +149,35 @@ def _cleanup_vpc_resources(
             logger.info("Deleted ENI %s", eni_id)
         except Exception:
             pass
+
+    # 6. Delete non-default security groups
+    try:
+        sgs = ec2.describe_security_groups(
+            Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+        ).get("SecurityGroups", [])
+        for sg in sgs:
+            if sg["GroupName"] == "default":
+                continue
+            sg_id = sg["GroupId"]
+            # Remove all ingress/egress rules first (dependencies between SGs)
+            try:
+                if sg.get("IpPermissions"):
+                    ec2.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=sg["IpPermissions"])
+                if sg.get("IpPermissionsEgress"):
+                    ec2.revoke_security_group_egress(GroupId=sg_id, IpPermissions=sg["IpPermissionsEgress"])
+            except Exception:
+                pass
+        # Delete after all rules are removed (avoids cross-SG dependency issues)
+        for sg in sgs:
+            if sg["GroupName"] == "default":
+                continue
+            try:
+                ec2.delete_security_group(GroupId=sg["GroupId"])
+                logger.info("Deleted SG %s (%s)", sg["GroupId"], sg.get("GroupName", ""))
+            except Exception as sg_err:
+                logger.warning("Could not delete SG %s: %s", sg["GroupId"], sg_err)
+    except Exception as e:
+        logger.warning("Security group cleanup failed: %s", e)
 
     logger.info("VPC resource cleanup done for %s", vpc_id)
 
