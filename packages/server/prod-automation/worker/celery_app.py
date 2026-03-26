@@ -182,47 +182,6 @@ def _cleanup_vpc_resources(
     logger.info("VPC resource cleanup done for %s", vpc_id)
 
 
-def _empty_milvus_s3_bucket_before_destroy(
-    region: str,
-    role_arn: str,
-    external_id: str,
-    customer_id: str,
-    session_name: str,
-    milvus_bucket_name: str | None,
-) -> None:
-    import boto3
-
-    sts = boto3.client("sts", region_name=region)
-    assumed = sts.assume_role(
-        RoleArn=role_arn,
-        ExternalId=external_id,
-        RoleSessionName=session_name,
-        DurationSeconds=3600,
-    )
-    creds = assumed["Credentials"]
-    cred_kwargs = {
-        "aws_access_key_id": creds["AccessKeyId"],
-        "aws_secret_access_key": creds["SecretAccessKey"],
-        "aws_session_token": creds["SessionToken"],
-    }
-    s3 = boto3.resource("s3", region_name=region, **cred_kwargs)
-
-    names: list[str] = []
-    if milvus_bucket_name:
-        names.append(milvus_bucket_name)
-    else:
-        for b in s3.buckets.all():
-            if f"{customer_id}-milvus" in b.name:
-                names.append(b.name)
-
-    for name in names:
-        try:
-            s3.Bucket(name).objects.all().delete()
-            logger.info("Emptied Milvus bucket %s", name)
-        except Exception as bucket_err:
-            logger.warning("Could not empty Milvus bucket %s: %s", name, bucket_err)
-
-
 class _LockRenewer:
     """Background thread that renews the DB lock every interval."""
 
@@ -566,18 +525,47 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
         except Exception as post_err:
             logger.warning("Post-cleanup failed (non-fatal): %s", post_err)
 
+        # Empty ALL S3 buckets before Pulumi destroy
         try:
-            _milvus_bucket = (outputs.get("milvus_bucket_name") or "").strip() or None
-            _empty_milvus_s3_bucket_before_destroy(
-                region=config.aws_config.region,
-                role_arn=config.aws_config.role_arn,
-                external_id=config.aws_config.external_id,
-                customer_id=customer_id,
-                session_name=f"byoc-milvus-bucket-empty-{customer_id}",
-                milvus_bucket_name=_milvus_bucket,
+            import boto3 as _boto3
+            _sts = _boto3.client("sts", region_name=config.aws_config.region)
+            _assumed = _sts.assume_role(
+                RoleArn=config.aws_config.role_arn,
+                ExternalId=config.aws_config.external_id,
+                RoleSessionName=f"byoc-bucket-empty-{customer_id}",
+                DurationSeconds=3600,
             )
+            _creds = _assumed["Credentials"]
+            _s3 = _boto3.resource("s3", region_name=config.aws_config.region,
+                aws_access_key_id=_creds["AccessKeyId"],
+                aws_secret_access_key=_creds["SecretAccessKey"],
+                aws_session_token=_creds["SessionToken"])
+
+            bucket_names = []
+            for key in ["milvus_bucket_name", "documents_bucket_name", "local_sources_bucket_name"]:
+                name = (outputs.get(key) or "").strip()
+                if name:
+                    bucket_names.append(name)
+
+            for b in _s3.buckets.all():
+                if customer_id in b.name and b.name not in bucket_names:
+                    bucket_names.append(b.name)
+
+            for name in bucket_names:
+                try:
+                    _s3.Bucket(name).objects.all().delete()
+                    logger.info("Emptied bucket %s", name)
+                except Exception as bucket_err:
+                    logger.warning("Could not empty bucket %s: %s", name, bucket_err)
+            logger.info("S3 bucket cleanup done for %s", customer_id)
         except Exception as bucket_err:
-            logger.warning("Milvus bucket cleanup failed (non-fatal): %s", bucket_err)
+            logger.warning("S3 bucket cleanup failed (non-fatal): %s", bucket_err)
+
+        # Cancel any stale locks from previous failed runs
+        try:
+            engine.cancel(stack_name)
+        except Exception:
+            pass
 
         # --- pulumi destroy ---
         db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING, "Running pulumi destroy")
@@ -607,6 +595,11 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
 
             if attempt >= max_attempts:
                 break
+
+            try:
+                engine.cancel(stack_name)
+            except Exception:
+                pass
 
             logger.warning("Cleaning up ENIs before retry %d...", attempt + 1)
             db.add_event(stack_name, DeploymentEventType.PULUMI_DESTROYING,
