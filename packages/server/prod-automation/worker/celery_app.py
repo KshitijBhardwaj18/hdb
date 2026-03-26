@@ -125,30 +125,32 @@ def _cleanup_vpc_resources(
     except Exception as e:
         logger.warning("VPC endpoint cleanup failed: %s", e)
 
-    # 4. Wait for ENI release
-    logger.info("Waiting 60s for ENI release...")
-    time.sleep(60)
-
-    # 5. Detach and delete orphaned ENIs
-    enis = ec2.describe_network_interfaces(
-        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
-    ).get("NetworkInterfaces", [])
-    for eni in enis:
-        eni_id = eni["NetworkInterfaceId"]
-        attach = eni.get("Attachment", {})
-        if attach.get("DeviceIndex") == 0:
-            continue  # skip primary interfaces
-        if attach.get("AttachmentId"):
+    # 4. Wait for ENI release with retry
+    for eni_attempt in range(3):
+        logger.info("Waiting 60s for ENI release (attempt %d/3)...", eni_attempt + 1)
+        time.sleep(60)
+        remaining = ec2.describe_network_interfaces(
+            Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+        ).get("NetworkInterfaces", [])
+        remaining = [e for e in remaining if e.get("Attachment", {}).get("DeviceIndex") != 0]
+        if not remaining:
+            logger.info("All ENIs released")
+            break
+        logger.info("%d ENIs still present, cleaning up...", len(remaining))
+        for eni in remaining:
+            eni_id = eni["NetworkInterfaceId"]
+            attach = eni.get("Attachment", {})
+            if attach.get("AttachmentId"):
+                try:
+                    ec2.detach_network_interface(AttachmentId=attach["AttachmentId"], Force=True)
+                    time.sleep(3)
+                except Exception:
+                    pass
             try:
-                ec2.detach_network_interface(AttachmentId=attach["AttachmentId"], Force=True)
-                time.sleep(3)
+                ec2.delete_network_interface(NetworkInterfaceId=eni_id)
+                logger.info("Deleted ENI %s", eni_id)
             except Exception:
                 pass
-        try:
-            ec2.delete_network_interface(NetworkInterfaceId=eni_id)
-            logger.info("Deleted ENI %s", eni_id)
-        except Exception:
-            pass
 
     # 6. Delete non-default security groups
     try:
