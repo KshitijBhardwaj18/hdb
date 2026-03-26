@@ -40,7 +40,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: cortex-ingestion
-          image: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-ingestion:50a000729bbbd718ec19748994af991ee2726860
+          image: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-ingestion:462172b27cc5d1cba90abdbceb19b8def393c22e
           imagePullPolicy: Always
           ports:
             - name: http
@@ -98,7 +98,7 @@ spec:
           emptyDir:
             sizeLimit: "2Gi"
       nodeSelector:
-        role: general
+        role: cortex-ingestion
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

@@ -19,11 +19,17 @@ spec:
         app: attu
         org_id: {{ .Values.org_id }}
     spec:
-      {{- if .Values.nodeSelector }}
+      {{- if .Values.attu.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.attu.nodeSelector | nindent 8 }}
+      {{- else if .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
       {{- end }}
-      {{- if .Values.tolerations }}
+      {{- if .Values.attu.tolerations }}
+      tolerations:
+        {{- toYaml .Values.attu.tolerations | nindent 8 }}
+      {{- else if .Values.tolerations }}
       tolerations:
         {{- toYaml .Values.tolerations | nindent 8 }}
       {{- end }}

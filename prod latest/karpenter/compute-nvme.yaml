@@ -1,0 +1,122 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: compute-nvme
+spec:
+  role: "KarpenterNodeRole-cortex-prod"   
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "cortex-prod"   
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "cortex-prod"   
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2   # must be 2+ for pods to reach IMDS for IAM credentials
+    httpTokens: required
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 50Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+        encrypted: true
+  userData: |
+    #!/bin/bash
+    set -e
+    NVME="/dev/nvme1n1"
+    MOUNT="/mnt/data"
+
+    # Wait up to 60s for NVMe device to appear
+    for i in $(seq 1 30); do
+      [ -b "$NVME" ] && break
+      sleep 2
+    done
+
+    if [ ! -b "$NVME" ]; then
+      echo "NVMe device not found, skipping mount"
+      exit 0
+    fi
+
+    # Format only if not already formatted
+    if ! blkid "$NVME" | grep -q xfs; then
+      mkfs.xfs -f "$NVME"
+    fi
+
+    mkdir -p "$MOUNT"
+    mount -o noatime,nodiratime "$NVME" "$MOUNT"
+
+    # Persist mount across reboots
+    echo "$NVME $MOUNT xfs defaults,noatime,nodiratime 0 2" >> /etc/fstab
+
+    # Kernel tuning for NVMe + high-throughput workloads
+    echo 10485760 > /proc/sys/fs/aio-max-nr          # async IO limit
+    echo 4096 > /proc/sys/vm/nr_hugepages            # huge pages for vector ops
+    echo 0 > /proc/sys/vm/overcommit_memory          # deny allocations that exceed available memory
+
+    # IO scheduler: none is optimal for NVMe (kernel handles it)
+    echo none > /sys/block/nvme1n1/queue/scheduler 2>/dev/null || true
+
+    # Redirect kubelet ephemeral storage to NVMe
+    # This ensures emptyDir volumes land on NVMe, not EBS root
+    mkdir -p "$MOUNT/kubelet" "$MOUNT/containerd"
+    
+    if [ -d /var/lib/kubelet ] && [ ! -L /var/lib/kubelet ]; then
+      cp -a /var/lib/kubelet/. "$MOUNT/kubelet/"
+      rm -rf /var/lib/kubelet
+      ln -s "$MOUNT/kubelet" /var/lib/kubelet
+    fi
+
+    if [ -d /var/lib/containerd ] && [ ! -L /var/lib/containerd ]; then
+      cp -a /var/lib/containerd/. "$MOUNT/containerd/"
+      rm -rf /var/lib/containerd
+      ln -s "$MOUNT/containerd" /var/lib/containerd
+    fi
+
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: compute-nvme
+spec:
+  template:
+    metadata:
+      labels:
+        role: milvus-compute-nvme
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: compute-nvme
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]        # never spot for queryNode — data loss risk
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - r8id.xlarge             # preferred: DDR5, Xeon 6, 237GB NVMe — $242/mo
+            - r8id.2xlarge            # fallback: 8vCPU, 64GB, 474GB NVMe — $484/mo
+            - r6id.xlarge             # second fallback if r8id unavailable
+            - r6id.2xlarge
+      taints:
+        - key: workload
+          value: milvus-compute-nvme
+          effect: NoSchedule
+  disruption:
+    consolidationPolicy: WhenEmpty    # only consolidate when node is empty
+    consolidateAfter: 30m
+    budgets:
+      - reasons: [Drifted, Underutilized]
+        nodes: "0"                    # never consolidate under these reasons — stable query path
+  limits:
+    cpu: "64"
+    memory: 512Gi

@@ -67,4 +67,4 @@ spec:
     cpu: 100
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 5m
+    consolidateAfter: 50m

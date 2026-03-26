@@ -138,7 +138,7 @@ install_monitoring_stack() {
         --namespace "${NAMESPACE}"
         --version "${HELM_CHART_VERSION}"
         --values "${VALUES_FILE}"
-        --set prometheus.prometheusSpec.nodeSelector.role=general
+        --set prometheus.prometheusSpec.nodeSelector.role=monitoring
         --set grafana.nodeSelector.role=general
         --wait
         --timeout "${HELM_TIMEOUT}s"

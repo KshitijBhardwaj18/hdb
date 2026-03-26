@@ -8,16 +8,79 @@ metadata:
 spec:
   mode: {{ .Values.milvus.mode }}
   
+  # ---------------------------------------------------------------------------
+  # Config — newSchema (flat keys, correct auth) vs legacy (milvus: wrapper)
+  # ---------------------------------------------------------------------------
   config:
+  {{- if .Values.milvus.config.newSchema }}
+    log:
+      level: {{ .Values.milvus.config.logLevel }}
+    common:
+      simdType: {{ .Values.milvus.config.common.simdType | default "avx512" }}
+      gracefulTime: {{ .Values.milvus.config.common.gracefulTime | default 5000 }}
+      gracefulStopTimeout: {{ .Values.milvus.config.common.gracefulStopTimeout | default 30 }}
+      security:
+        authorizationEnabled: {{ .Values.milvus.config.authEnabled }}
+
+    queryNode:
+      cache:
+        warmup: {{ .Values.milvus.config.queryNode.cache.warmup | default "async" }}
+        memoryLimit: {{ .Values.milvus.config.queryNode.cache.memoryLimit | default 4294967296 }}
+        readAheadPolicy: {{ .Values.milvus.config.queryNode.cache.readAheadPolicy | default "willneed" }}
+      mmap:
+        vectorField: false
+        vectorIndex: false
+        scalarField: true
+        scalarIndex: true
+        chunkCache: true
+      segcore:
+        chunkRows: {{ .Values.milvus.config.queryNode.segcore.chunkRows | default 4096 }}
+        knowhereThreadPoolNumRatio: {{ .Values.milvus.config.queryNode.segcore.knowhereThreadPoolNumRatio | default 4 }}
+        interimIndex:
+          enableIndex: true
+          nlist: {{ .Values.milvus.config.queryNode.segcore.interimIndex.nlist | default 128 }}
+          nprobe: {{ .Values.milvus.config.queryNode.segcore.interimIndex.nprobe | default 32 }}
+
+    dataCoord:
+      segment:
+        maxSize: {{ .Values.milvus.config.dataCoord.segment.maxSize | default 2048 }}
+        sealProportion: {{ .Values.milvus.config.dataCoord.segment.sealProportion | default 0.12 }}
+        expansionRate: {{ .Values.milvus.config.dataCoord.segment.expansionRate | default 1.25 }}
+
+    {{- if .Values.milvus.dependencies.s3.enabled }}
+    minio:
+      bucketName: "cortex-milvus-store-{{ .Values.org_id }}"
+      rootPath: milvus
+      useSSL: true
+      useIAM: true
+      cloudProvider: aws
+    {{- end }}
+
+    proxy:
+      maxVectorFieldNum: {{ .Values.milvus.config.maxVectorFieldNum | default 10 }}
+
+  {{- else }}
+    # Legacy config — kept for backward compat with old clusters
     milvus:
       log:
         level: {{ .Values.milvus.config.logLevel }}
       common:
         security:
           authorizationEnabled: {{ .Values.milvus.config.authEnabled }}
-  
+    proxy:
+      maxVectorFieldNum: {{ .Values.milvus.config.maxVectorFieldNum | default 10 }}
+  {{- end }}
+
+  # ---------------------------------------------------------------------------
+  # Components
+  # ---------------------------------------------------------------------------
   components:
     disableMetric: false
+    {{- if .Values.milvus.components.image }}
+    image: {{ .Values.milvus.components.image }}
+    {{- end }}
+    enableRollingUpdate: true
+    imageUpdateMode: rollingUpgrade
     
     {{- if .Values.nodeSelector }}
     nodeSelector:
@@ -36,6 +99,23 @@ spec:
     
     queryNode:
       replicas: {{ .Values.milvus.components.queryNode.replicas }}
+      {{- if .Values.queryNodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.queryNodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.queryNodeTolerations }}
+      tolerations:
+        {{- toYaml .Values.queryNodeTolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.milvus.config.newSchema }}
+      volumeMounts:
+        - mountPath: /var/lib/milvus/data
+          name: nvme-data
+      volumes:
+        - name: nvme-data
+          emptyDir:
+            sizeLimit: 200Gi
+      {{- end }}
       resources:
         {{- toYaml .Values.milvus.components.queryNode.resources | nindent 8 }}
     
@@ -43,17 +123,29 @@ spec:
       replicas: {{ .Values.milvus.components.dataNode.replicas }}
       resources:
         {{- toYaml .Values.milvus.components.dataNode.resources | nindent 8 }}
-    
+
+    {{- if .Values.milvus.components.indexNode }}
     indexNode:
       replicas: {{ .Values.milvus.components.indexNode.replicas }}
       resources:
         {{- toYaml .Values.milvus.components.indexNode.resources | nindent 8 }}
+    {{- end }}
     
     mixCoord:
       replicas: {{ .Values.milvus.components.mixCoord.replicas }}
       resources:
         {{- toYaml .Values.milvus.components.mixCoord.resources | nindent 8 }}
 
+    {{- if .Values.milvus.components.streamingNode }}
+    streamingNode:
+      replicas: {{ .Values.milvus.components.streamingNode.replicas }}
+      resources:
+        {{- toYaml .Values.milvus.components.streamingNode.resources | nindent 8 }}
+    {{- end }}
+
+  # ---------------------------------------------------------------------------
+  # Dependencies
+  # ---------------------------------------------------------------------------
   dependencies:
     etcd:
       inCluster:
@@ -76,6 +168,16 @@ spec:
           resources:
             {{- toYaml .Values.milvus.dependencies.etcd.resources | nindent 12 }}
     
+    # -------------------------------------------------------------------------
+    # Storage — external S3 or in-cluster MinIO
+    # -------------------------------------------------------------------------
+    {{- if and .Values.milvus.dependencies.s3 .Values.milvus.dependencies.s3.enabled }}
+    storage:
+      external: true
+      type: S3
+      endpoint: s3.{{ .Values.milvus.dependencies.s3.region }}.amazonaws.com:443
+      secretRef: ""
+    {{- else }}
     storage:
       inCluster:
         deletionPolicy: {{ .Values.milvus.dependencies.minio.deletionPolicy }}
@@ -97,8 +199,13 @@ spec:
             size: {{ .Values.milvus.dependencies.minio.storageSize }}
           resources:
             {{- toYaml .Values.milvus.dependencies.minio.resources | nindent 12 }}
+    {{- end }}
     
+    # -------------------------------------------------------------------------
+    # Message stream — woodpecker or pulsar
+    # -------------------------------------------------------------------------
     msgStreamType: {{ .Values.milvus.dependencies.msgStream.type }}
+    {{- if eq .Values.milvus.dependencies.msgStream.type "pulsar" }}
     pulsar:
       inCluster:
         deletionPolicy: {{ .Values.milvus.dependencies.pulsar.deletionPolicy }}
@@ -141,3 +248,4 @@ spec:
             replicaCount: {{ .Values.milvus.dependencies.pulsar.broker.replicas }}
             resources:
               {{- toYaml .Values.milvus.dependencies.pulsar.broker.resources | nindent 14 }}
+    {{- end }}
