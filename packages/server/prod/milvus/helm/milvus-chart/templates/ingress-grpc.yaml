@@ -7,6 +7,8 @@ metadata:
   labels:
     {{- include "milvus-tenant.labels" . | nindent 4 }}
   annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    acme.cert-manager.io/http01-edit-in-place: "true"
     nginx.org/http2: "true"
     nginx.org/grpc-services: {{ include "milvus-tenant.serviceName" . | quote }}
     nginx.org/proxy-connect-timeout: {{ .Values.ingress.grpc.proxyConnectTimeout | quote }}
@@ -20,7 +22,7 @@ spec:
   tls:
     - hosts:
         - {{ include "milvus-tenant.grpcHost" . }}
-      secretName: {{ .Values.ingress.tlsSecretName | default (include "milvus-tenant.tlsSecretName" .) }}
+      secretName: {{ .Values.org_id }}-milvus-grpc-tls
   rules:
     - host: {{ include "milvus-tenant.grpcHost" . }}
       http:

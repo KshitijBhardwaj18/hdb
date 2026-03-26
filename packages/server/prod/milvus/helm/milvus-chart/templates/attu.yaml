@@ -73,6 +73,8 @@ metadata:
   labels:
     {{- include "milvus-tenant.labels" . | nindent 4 }}
   annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    acme.cert-manager.io/http01-edit-in-place: "true"
     nginx.org/proxy-connect-timeout: {{ .Values.ingress.attu.proxyConnectTimeout | quote }}
     nginx.org/proxy-read-timeout: {{ .Values.ingress.attu.proxyReadTimeout | quote }}
     nginx.org/proxy-send-timeout: {{ .Values.ingress.attu.proxySendTimeout | quote }}
@@ -85,7 +87,7 @@ spec:
   tls:
     - hosts:
         - {{ include "milvus-tenant.attuHost" . }}
-      secretName: {{ .Values.ingress.tlsSecretName | default (include "milvus-tenant.tlsSecretName" .) }}
+      secretName: {{ .Values.org_id }}-attu-tls
   rules:
     - host: {{ include "milvus-tenant.attuHost" . }}
       http:

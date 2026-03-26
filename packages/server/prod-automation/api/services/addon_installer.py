@@ -746,7 +746,7 @@ echo "==> cert-manager installation complete!"
             "",
             "# Install / upgrade ArgoCD (with retry for transient fetch failures)",
             "for attempt in 1 2 3; do",
-            f"  helm upgrade --install argocd argo/argo-cd --namespace argocd --create-namespace --version {argocd_config.chart_version} --set server.replicas={argocd_config.server_replicas} --set repoServer.replicas={argocd_config.repo_server_replicas} --set 'redis-ha.enabled={'true' if argocd_config.ha_enabled else 'false'}' --set controller.replicas={controller_replicas} --set configs.params.server\\.insecure=true"
+            f"  helm upgrade --install argocd argo/argo-cd --namespace argocd --create-namespace --version {argocd_config.chart_version} --set server.replicas={argocd_config.server_replicas} --set repoServer.replicas={argocd_config.repo_server_replicas} --set 'redis-ha.enabled={'true' if argocd_config.ha_enabled else 'false'}' --set controller.replicas={controller_replicas} --set 'configs.params.server\\.insecure=true'"
             + (f" --set server.ingress.enabled=true --set server.ingress.ingressClassName=nginx-inc --set 'server.ingress.hostname={argocd_config.hostname}' --set server.ingress.tls=true --set 'server.ingress.annotations.cert-manager\\.io/cluster-issuer=letsencrypt-prod' --set 'server.ingress.annotations.acme\\.cert-manager\\.io/http01-edit-in-place=true' --set 'server.ingress.annotations.nginx\\.org/redirect-to-https=false'" if argocd_config.hostname else "")
             + " --wait --timeout 5m && break",
             '  echo "==> ArgoCD install attempt $attempt failed, retrying in 15s..."',

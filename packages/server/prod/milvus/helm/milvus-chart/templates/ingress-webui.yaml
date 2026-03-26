@@ -7,6 +7,8 @@ metadata:
   labels:
     {{- include "milvus-tenant.labels" . | nindent 4 }}
   annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    acme.cert-manager.io/http01-edit-in-place: "true"
     nginx.org/proxy-connect-timeout: {{ .Values.ingress.webui.proxyConnectTimeout | quote }}
     nginx.org/proxy-read-timeout: {{ .Values.ingress.webui.proxyReadTimeout | quote }}
     nginx.org/proxy-send-timeout: {{ .Values.ingress.webui.proxySendTimeout | quote }}
@@ -19,7 +21,7 @@ spec:
   tls:
     - hosts:
         - {{ include "milvus-tenant.webuiHost" . }}
-      secretName: {{ .Values.ingress.tlsSecretName | default (include "milvus-tenant.tlsSecretName" .) }}
+      secretName: {{ .Values.org_id }}-milvus-webui-tls
   rules:
     - host: {{ include "milvus-tenant.webuiHost" . }}
       http:
