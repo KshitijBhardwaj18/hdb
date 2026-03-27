@@ -66,6 +66,9 @@ export function mapFormToConfig(data: DeploymentFormData): CustomerConfigInput {
         }
       : {
           mode: 'atlas-peering',
+          atlas_client_id: data.atlasClientId || undefined,
+          atlas_client_secret: data.atlasClientSecret || undefined,
+          atlas_org_id: data.atlasOrgId || undefined,
           atlas_project_id: data.atlasProjectId || undefined,
           atlas_cluster_name: data.atlasClusterName || undefined,
         },
