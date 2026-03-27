@@ -544,7 +544,7 @@ def destroy_task(self, customer_id: str, environment: str) -> dict:  # type: ign
                 aws_session_token=_creds["SessionToken"])
 
             bucket_names = []
-            for key in ["milvus_bucket_name", "documents_bucket_name", "local_sources_bucket_name"]:
+            for key in ["milvus_bucket_name"]:
                 name = (outputs.get(key) or "").strip()
                 if name:
                     bucket_names.append(name)

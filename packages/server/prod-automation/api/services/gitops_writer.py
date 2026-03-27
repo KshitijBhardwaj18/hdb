@@ -44,8 +44,6 @@ class GitOpsWriter:
         org = self.customer_id
 
         irsa_role_arn = self._get_output("cortex_app_role_arn")
-        documents_bucket = self._get_output("documents_bucket_name")
-        local_sources_bucket = self._get_output("local_sources_bucket_name")
         cortex_users_table = self._get_output("cortex_users_table_name")
         api_keys_table = self._get_output("api_keys_table_name")
         tenant_mapping_table = self._get_output("tenant_mapping_table_name")
@@ -66,11 +64,16 @@ config:
   MILVUS_URI: "http://{org}-milvus.milvus-{org}.svc.cluster.local:19530"
   MINIO_ENDPOINT: "s3.{region}.amazonaws.com"
   MINIO_SECURE: "true"
-  MINIO_BUCKET: "{documents_bucket}"
   KAFKA_BOOTSTRAP_SERVERS: ""
+  ENV: "prod"
+  IS_INGESTION: "false"
+  DB_CONNECTIONS: "80"
+  FALKORDB_PORT: "6379"
+  FALKOR_ORG_SPECIFIC_CLUSTER: "true"
+  ENABLE_MILVUS: "true"
+  MILVUS_DEFAULT_PARTITIONS: "64"
   NEXTAUTH_TABLE_NAME: "{cortex_users_table}"
   CORTEX_API_KEYS_TABLE_NAME: "{api_keys_table}"
-  CORTEX_LOCAL_SOURCES_BUCKET_NAME: "{local_sources_bucket}"
   TENANT_ID_MAPPING_TABLE_NAME: "{tenant_mapping_table}"
   USER_METADATA_TABLE_NAME: "{user_metadata_table}"
   USER_INDEXED_DATA_TABLE: "{user_indexed_data_table}"
@@ -96,9 +99,15 @@ config:
   FALKORDB_HOST: "falkordb-{org}-tenant-1-falkordb-falkordb.falkordb-{org}.svc.cluster.local"
   MILVUS_URI: "http://{org}-milvus.milvus-{org}.svc.cluster.local:19530"
   MINIO_ENDPOINT: "s3.{region}.amazonaws.com"
-  MINIO_SECURE: "true"
-  MINIO_BUCKET: "{documents_bucket}"
+  MINIO_SECURE: "ue"
   KAFKA_BOOTSTRAP_SERVERS: ""
+  ENV: "prod"
+  IS_INGESTION: "true"
+  DB_CONNECTIONS: "80"
+  FALKORDB_PORT: "6379"
+  FALKOR_ORG_SPECIFIC_CLUSTER: "true"
+  ENABLE_MILVUS: "true"
+  MILVUS_DEFAULT_PARTITIONS: "64"
   CORTEX_API_KEYS_TABLE_NAME: "{api_keys_table}"
   USER_INDEXED_DATA_TABLE: "{user_indexed_data_table}"
   TOKEN_BUCKET_TABLE_NAME: "{token_bucket_table}"

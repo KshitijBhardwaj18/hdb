@@ -107,38 +107,6 @@ aws.iam.RolePolicyAttachment(
 )
 
 
-documents_bucket = aws.s3.BucketV2(
-    f"{config.customer_id}-documents-bucket",
-    tags={**config.tags, "Name": f"{config.customer_id}-documents"},
-    opts=pulumi.ResourceOptions(provider=aws_provider),
-)
-
-aws.s3.BucketPublicAccessBlock(
-    f"{config.customer_id}-documents-bucket-public-access",
-    bucket=documents_bucket.id,
-    block_public_acls=True,
-    block_public_policy=True,
-    ignore_public_acls=True,
-    restrict_public_buckets=True,
-    opts=pulumi.ResourceOptions(provider=aws_provider),
-)
-
-local_sources_bucket = aws.s3.BucketV2(
-    f"{config.customer_id}-local-sources-bucket",
-    tags={**config.tags, "Name": f"{config.customer_id}-cortex-local-sources"},
-    opts=pulumi.ResourceOptions(provider=aws_provider),
-)
-
-aws.s3.BucketPublicAccessBlock(
-    f"{config.customer_id}-local-sources-bucket-public-access",
-    bucket=local_sources_bucket.id,
-    block_public_acls=True,
-    block_public_policy=True,
-    ignore_public_acls=True,
-    restrict_public_buckets=True,
-    opts=pulumi.ResourceOptions(provider=aws_provider),
-)
-
 # Milvus object storage bucket (replaces MinIO)
 milvus_bucket = aws.s3.BucketV2(
     f"{config.customer_id}-milvus-bucket",
@@ -393,9 +361,7 @@ if config.mongodb_config and config.mongodb_config.mode in ("atlas", "atlas-peer
 # IAM - Cortex App Role (IRSA) with fixed name for predictable ARN
 def _build_cortex_app_policy(args: list) -> str:
     """Build the cortex-app IAM policy with conditional Kafka permissions."""
-    doc_bucket_arn = args[0]
-    src_bucket_arn = args[1]
-    table_arns = args[2:10]
+    table_arns = args[0:8]
 
     statements = [
         {
@@ -439,7 +405,7 @@ def _build_cortex_app_policy(args: list) -> str:
         kafka_resource = "*"
         if config.kafka_config.cluster_arn:
             kafka_resource = config.kafka_config.cluster_arn
-        elif len(args) > 10 and args[10]:
+        elif len(args) > 8 and args[8]:
             kafka_resource = args[10]
 
         # MSK Serverless IAM auth requires separate resource ARNs for
@@ -477,8 +443,6 @@ def _build_cortex_app_policy(args: list) -> str:
 
 
 _policy_args: list[pulumi.Output] = [
-    documents_bucket.arn,
-    local_sources_bucket.arn,
     *_all_table_arns,
 ]
 
@@ -537,8 +501,6 @@ cortex_app_secret = aws.secretsmanager.Secret(
     opts=pulumi.ResourceOptions(provider=aws_provider),
 )
 
-_eso_google_key = pulumi_config.get("esoGoogleApiKey") or ""
-_eso_gemini_key = pulumi_config.get("esoGeminiApiKey") or ""
 _eso_github_argocd_cd_token = pulumi_config.get("esoGithubArgocdCdToken") or ""
 
 
@@ -546,12 +508,20 @@ def _build_cortex_app_secrets(args: dict) -> str:
     """Build cortex-app secrets JSON with conditional Kafka fields."""
     secrets = {
         "FALKORDB_PASSWORD": args["falkordb_password"],
+        "FALKORDB_USER": "default",
         "MILVUS_TOKEN": args["milvus_token"],
-        "GOOGLE_API_KEY": _eso_google_key,
-        "GEMINI_API_KEY": _eso_gemini_key,
+        "OPENAI_API_KEY": "",
+        "ANTHROPIC_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+        "GEMINI_API_KEY": "",
+        "GROQ_API_KEY": "",
+        "CEREBRAS_API_KEY": "",
+        "COHI_KEY": "",
+        "VOYAGE_API_KEY": "",
+        "JWT_SECRET_KEY": "",
+        "CORTEX_INTERNAL_SECRET": "",
+        "NEXTAUTH_SECRET": "",
         "GITHUB_ARGOCD_CD_TOKEN": _eso_github_argocd_cd_token,
-        "MINIO_BUCKET": args["documents_bucket"],
-        "CORTEX_LOCAL_SOURCES_BUCKET_NAME": args["local_sources_bucket"],
         "NEXTAUTH_TABLE_NAME": args["cortex_users_table"],
         "CORTEX_API_KEYS_TABLE_NAME": args["api_keys_table"],
         "TENANT_ID_MAPPING_TABLE_NAME": args["tenant_mapping_table"],
@@ -593,8 +563,6 @@ def _build_cortex_app_secrets(args: dict) -> str:
 _app_secret_map: dict[str, pulumi.Output] = {
     "falkordb_password": pulumi_config.require_secret("esoFalkordbPassword"),
     "milvus_token": pulumi_config.require_secret("esoMilvusToken"),
-    "documents_bucket": documents_bucket.bucket,
-    "local_sources_bucket": local_sources_bucket.bucket,
     "cortex_users_table": cortex_users_table.name,
     "api_keys_table": api_keys_table.name,
     "tenant_mapping_table": tenant_mapping_table.name,
@@ -682,10 +650,18 @@ def _build_cortex_ingestion_secrets(args: dict) -> str:
     """Build cortex-ingestion secrets JSON with conditional Kafka fields."""
     secrets = {
         "FALKORDB_PASSWORD": args["falkordb_password"],
+        "FALKORDB_USER": "default",
         "MILVUS_TOKEN": args["milvus_token"],
-        "GOOGLE_API_KEY": _eso_google_key,
-        "GEMINI_API_KEY": _eso_gemini_key,
-        "MINIO_BUCKET": args["documents_bucket"],
+        "OPENAI_API_KEY": "",
+        "ANTHROPIC_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+        "GEMINI_API_KEY": "",
+        "GROQ_API_KEY": "",
+        "CEREBRAS_API_KEY": "",
+        "COHERE_API_KEY": "",
+        "VOYAGE_API_KEY": "",
+        "JWT_SECRET_KEY": "",
+        "CORTEX_INTERNAL_SECRET": "",
         "CORTEX_API_KEYS_TABLE_NAME": args["api_keys_table"],
         "CORTEX_APP_ROLE_ARN": args["cortex_app_role_arn"],
         "USER_INDEXED_DATA_TABLE": args["user_indexed_data_table"],
@@ -722,7 +698,6 @@ def _build_cortex_ingestion_secrets(args: dict) -> str:
 _ingestion_secret_map: dict[str, pulumi.Output] = {
     "falkordb_password": pulumi_config.require_secret("esoFalkordbPassword"),
     "milvus_token": pulumi_config.require_secret("esoMilvusToken"),
-    "documents_bucket": documents_bucket.bucket,
     "api_keys_table": api_keys_table.name,
     "cortex_app_role_arn": cortex_app_role.arn,
     "user_indexed_data_table": user_indexed_data_table.name,
@@ -826,8 +801,6 @@ pulumi.export("cortex_app_secret_arn", cortex_app_secret.arn)
 pulumi.export("cortex_ingestion_secret_arn", cortex_ingestion_secret.arn)
 pulumi.export("nextjs_secret_arn", nextjs_secret.arn)
 
-pulumi.export("documents_bucket_name", documents_bucket.bucket)
-pulumi.export("local_sources_bucket_name", local_sources_bucket.bucket)
 pulumi.export("milvus_bucket_name", milvus_bucket.bucket)
 pulumi.export("cortex_users_table_name", cortex_users_table.name)
 pulumi.export("api_keys_table_name", api_keys_table.name)
