@@ -165,7 +165,7 @@ _ddb_tags = {**config.tags, "ManagedBy": "pulumi"}
 # --- cortex-users (NextAuth) ---
 # PK=pk, SK=sk, GSI1(GSI1PK/GSI1SK)
 cortex_users_table = aws.dynamodb.Table(
-    f"{config.customer_id}-cortex-users",
+    "cortex-users",
     billing_mode="PAY_PER_REQUEST",
     hash_key="pk",
     range_key="sk",
@@ -190,7 +190,7 @@ cortex_users_table = aws.dynamodb.Table(
 # --- cortex_user_api_keys_{env} ---
 # PK=api_key_id, SK=user_email, GSI: user_email(PK=user_email, SK=api_key_id)
 api_keys_table = aws.dynamodb.Table(
-    f"{config.customer_id}-cortex-api-keys",
+    "cortex-api-keys",
     billing_mode="PAY_PER_REQUEST",
     hash_key="api_key_id",
     range_key="user_email",
@@ -213,7 +213,7 @@ api_keys_table = aws.dynamodb.Table(
 # --- user_metadata_{env} ---
 # PK=user_id
 user_metadata_table = aws.dynamodb.Table(
-    f"{config.customer_id}-user-metadata",
+    "user-metadata",
     billing_mode="PAY_PER_REQUEST",
     hash_key="user_id",
     attributes=[
@@ -226,7 +226,7 @@ user_metadata_table = aws.dynamodb.Table(
 # --- user_indexed_data_status ---
 # PK=composite_pk, GSI: file_id-index(PK=file_id)
 user_indexed_data_table = aws.dynamodb.Table(
-    f"{config.customer_id}-user-indexed-data-status",
+    "user-indexed-data-status",
     billing_mode="PAY_PER_REQUEST",
     hash_key="composite_pk",
     attributes=[
@@ -247,7 +247,7 @@ user_indexed_data_table = aws.dynamodb.Table(
 # --- user_details ---
 # PK=email, SK=organization, 4 GSIs
 user_details_table = aws.dynamodb.Table(
-    f"{config.customer_id}-user-details",
+    "user-details",
     billing_mode="PAY_PER_REQUEST",
     hash_key="email",
     range_key="organization",
@@ -287,7 +287,7 @@ user_details_table = aws.dynamodb.Table(
 
 
 users_to_sign_up_table = aws.dynamodb.Table(
-    f"{config.customer_id}-users-to-sign-up",
+    "users-to-sign-up",
     billing_mode="PAY_PER_REQUEST",
     hash_key="email",
     attributes=[
@@ -299,7 +299,7 @@ users_to_sign_up_table = aws.dynamodb.Table(
 
 
 tenant_mapping_table = aws.dynamodb.Table(
-    f"{config.customer_id}-tenant-id-mapping",
+    "tenant-id-mapping",
     billing_mode="PAY_PER_REQUEST",
     hash_key="Organisation_tenant_id",
     range_key="Organisation",
@@ -321,7 +321,7 @@ tenant_mapping_table = aws.dynamodb.Table(
 
 
 token_bucket_table = aws.dynamodb.Table(
-    f"{config.customer_id}-token-bucket-rate-limiter",
+    "token-bucket-rate-limiter",
     billing_mode="PAY_PER_REQUEST",
     hash_key="pk",
     attributes=[
