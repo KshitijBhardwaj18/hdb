@@ -35,11 +35,11 @@ class Settings(BaseSettings):
 
     # GitHub (for GitOps writer)
     github_pat: str = ""
-    github_repo: str = "opengig/cortex"
+    github_repo: str = ""
     github_branch: str = "main"
 
     # Auth / JWT
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str = ""
     jwt_expires_in_hours: int = 168  # 7 days
 
     # Deployment limits
@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
 
     # Platform-managed secrets (from .env, not from customer)
-    falkordb_password: str = "d6c77M05pV"
-    milvus_token: str = "root:Milvus"
+    falkordb_password: str = ""
+    milvus_token: str = ""
 
     # NextJS platform secrets
     nextjs_nextauth_secret: str = ""
@@ -72,10 +72,24 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     s = Settings()
-    if s.jwt_secret == "change-me-in-production":
+    missing = []
+    if not s.jwt_secret:
+        missing.append("JWT_SECRET")
+    if not s.falkordb_password:
+        missing.append("FALKORDB_PASSWORD")
+    if not s.milvus_token:
+        missing.append("MILVUS_TOKEN")
+    if not s.github_pat:
+        missing.append("GITHUB_PAT")
+    if not s.github_repo:
+        missing.append("GITHUB_REPO")
+    if not s.mongodb_uri or s.mongodb_uri == "mongodb://localhost:27017":
+        missing.append("MONGODB_URI")
+    if missing:
         _settings_logger.warning(
-            "JWT_SECRET is still the default value! "
-            "Set the JWT_SECRET environment variable to a strong random string."
+            "Missing required environment variables: %s. "
+            "Set them in the .env file before deploying.",
+            ", ".join(missing),
         )
     return s
 

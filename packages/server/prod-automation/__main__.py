@@ -516,7 +516,7 @@ def _build_cortex_app_secrets(args: dict) -> str:
         "GEMINI_API_KEY": "",
         "GROQ_API_KEY": "",
         "CEREBRAS_API_KEY": "",
-        "COHI_KEY": "",
+        "COHERE_API_KEY": "",
         "VOYAGE_API_KEY": "",
         "JWT_SECRET_KEY": "",
         "CORTEX_INTERNAL_SECRET": "",
