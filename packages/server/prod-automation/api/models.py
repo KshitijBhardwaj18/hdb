@@ -812,7 +812,20 @@ class CustomerConfigResponse(BaseModel):
 
     @classmethod
     def from_resolved(cls, config: CustomerConfigResolved) -> "CustomerConfigResponse":
-        """Create response from resolved config (excludes sensitive AWS fields)."""
+        """Create response from resolved config (excludes sensitive fields)."""
+        safe_mongodb = None
+        if config.mongodb_config:
+            safe_mongodb = config.mongodb_config.model_copy(update={
+                "atlas_client_secret": "***" if config.mongodb_config.atlas_client_secret else None,
+                "db_password": "***" if config.mongodb_config.db_password else None,
+            })
+
+        safe_kafka = None
+        if config.kafka_config:
+            safe_kafka = config.kafka_config.model_copy(update={
+                "password": "***" if config.kafka_config.password else None,
+            })
+
         return cls(
             customer_id=config.customer_id,
             environment=config.environment,
@@ -821,8 +834,8 @@ class CustomerConfigResponse(BaseModel):
             vpc_config=config.vpc_config,
             eks_config=config.eks_config,
             addons=config.addons,
-            kafka_config=config.kafka_config,
-            mongodb_config=config.mongodb_config,
+            kafka_config=safe_kafka,
+            mongodb_config=safe_mongodb,
             tags=config.tags,
             created_at=config.created_at,
             updated_at=config.updated_at,

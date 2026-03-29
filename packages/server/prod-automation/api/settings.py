@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     )
 
     # Pulumi S3 backend
-    pulumi_backend_url: str = "s3://my-pulumi-state-bucket"
-    pulumi_secrets_provider: str = "awskms://alias/pulumi-secrets"
+    pulumi_backend_url: str = ""
+    pulumi_secrets_provider: str = ""
     pulumi_work_dir: str = "."
 
     # AWS credentials
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
 
     # MongoDB
-    mongodb_uri: str = "mongodb://localhost:27017"
+    mongodb_uri: str = ""
     mongodb_database: str = "byoc_platform"
 
     # Redis (Celery broker)
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     nextjs_resend_api_key: str = ""
     nextjs_stripe_secret_key: str = ""
     nextjs_frontend_config: str = ""
-    nextjs_nextauth_url: str = "http://localhost:3000"
+    nextjs_nextauth_url: str = ""
     nextjs_auth_dynamodb_region: str = "us-east-1"
     nextjs_email_from: str = ""
 
@@ -73,6 +73,12 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     s = Settings()
     missing = []
+    if not s.pulumi_backend_url:
+        missing.append("PULUMI_BACKEND_URL")
+    if not s.pulumi_secrets_provider:
+        missing.append("PULUMI_SECRETS_PROVIDER")
+    if not s.mongodb_uri:
+        missing.append("MONGODB_URI")
     if not s.jwt_secret:
         missing.append("JWT_SECRET")
     if not s.falkordb_password:
@@ -83,8 +89,6 @@ def get_settings() -> Settings:
         missing.append("GITHUB_PAT")
     if not s.github_repo:
         missing.append("GITHUB_REPO")
-    if not s.mongodb_uri or s.mongodb_uri == "mongodb://localhost:27017":
-        missing.append("MONGODB_URI")
     if missing:
         _settings_logger.warning(
             "Missing required environment variables: %s. "

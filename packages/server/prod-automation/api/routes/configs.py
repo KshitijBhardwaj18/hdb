@@ -121,14 +121,14 @@ async def list_configs(
 
 @router.get(
     "/{customer_id}",
-    response_model=CustomerConfigResolved,
+    response_model=CustomerConfigResponse,
     summary="Get customer configuration",
     description="Retrieve a specific customer's fully-resolved configuration.",
 )
 async def get_config(
     customer_id: str,
     current_user: UserResponse = Depends(get_current_user),
-) -> CustomerConfigResolved:
+) -> CustomerConfigResponse:
     """Get a customer configuration by ID."""
     config = config_storage.get(current_user.id, customer_id)
     if config is None:
@@ -137,7 +137,7 @@ async def get_config(
             detail=f"Configuration for customer '{customer_id}' not found",
         )
 
-    return config
+    return CustomerConfigResponse.from_resolved(config)
 
 
 @router.put(
