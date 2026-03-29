@@ -113,3 +113,19 @@ export function useDeploymentEvents(
     },
   });
 }
+
+export function useDnsStatus(
+  customerId: string | null,
+  environment: string | null,
+  enabled: boolean = false,
+) {
+  return useQuery({
+    queryKey: [...DEPLOYMENTS_KEY, customerId, environment, 'dns-status'],
+    queryFn: () => deploymentService.getDnsStatus(customerId!, environment!),
+    enabled: !!customerId && !!environment && enabled,
+    refetchInterval: (query) => {
+      if (query.state.data?.all_healthy) return false;
+      return 10000;
+    },
+  });
+}

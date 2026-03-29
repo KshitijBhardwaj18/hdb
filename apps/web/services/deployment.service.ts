@@ -5,6 +5,7 @@ import type {
   DeploymentResponse,
   DeployRequest,
   DestroyRequest,
+  DnsStatusResponse,
 } from '@/types/deployment.types';
 
 export const deploymentService = {
@@ -39,6 +40,12 @@ export const deploymentService = {
     return ApiClient.post<DeploymentResponse>(
       `/api/v1/deployments/${customerId}/${environment}/destroy`,
       { confirm: true } satisfies DestroyRequest,
+    );
+  },
+
+  getDnsStatus(customerId: string, environment: string): Promise<DnsStatusResponse> {
+    return ApiClient.get<DnsStatusResponse>(
+      `/api/v1/deployments/${customerId}/${environment}/dns-status`,
     );
   },
 };

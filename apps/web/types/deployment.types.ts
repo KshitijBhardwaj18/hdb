@@ -283,6 +283,24 @@ export interface DeploymentEventsResponse {
   events: DeploymentEvent[];
 }
 
+// --- DNS Status ---
+
+export interface DnsServiceHealth {
+  name: string;
+  hostname: string;
+  url: string;
+  status: 'reachable' | 'unreachable' | 'timeout';
+  status_code: number | null;
+}
+
+export interface DnsStatusResponse {
+  domain: string;
+  nlb_address: string | null;
+  cname_records: { name: string; type: string; target: string }[];
+  services: DnsServiceHealth[];
+  all_healthy: boolean;
+}
+
 // --- AWS Connection Test ---
 
 export interface AwsTestConnectionRequest {

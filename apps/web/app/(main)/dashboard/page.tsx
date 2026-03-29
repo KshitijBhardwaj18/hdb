@@ -356,6 +356,7 @@ export default function DashboardPage() {
       kubernetesVersion: firstConfig.eks_config?.version ?? '1.34',
       lastUpdated: firstConfig.updated_at ? new Date(firstConfig.updated_at).toLocaleDateString() : '',
       deployDate: firstConfig.created_at ? new Date(firstConfig.created_at).toLocaleDateString() : '',
+      outputs: dep?.outputs,
     };
 
     return (

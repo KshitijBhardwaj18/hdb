@@ -1,8 +1,10 @@
 'use client';
 
-import { Check, Copy, Globe, Terminal } from 'lucide-react';
-import { useState } from 'react';
+import { Check, Copy, Globe, Loader2, Terminal } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useSsmSession } from '@/hooks/use-cluster';
+import { useDnsStatus } from '@/hooks/use-deployment';
+import type { DnsServiceHealth } from '@/types/deployment.types';
 
 interface DeploymentInfo {
   customerId: string;
@@ -15,6 +17,7 @@ interface DeploymentInfo {
   lastUpdated: string;
   deployDate: string;
   deployedAt?: string;
+  outputs?: Record<string, unknown>;
 }
 
 interface DeploymentOverviewProps {
@@ -208,6 +211,14 @@ export function DeploymentOverview({ deployment }: DeploymentOverviewProps) {
               </p>
             )}
           </div>
+
+          {/* Services & DNS */}
+          <ServicesDnsCard
+            customerId={deployment.customerId}
+            environment={deployment.rawEnvironment}
+            domain={deployment.domain}
+            outputs={deployment.outputs}
+          />
         </>
       ) : (
         <div className='rounded-lg bg-[#222222] p-6' style={{ border: '0.5px solid #5B5B5B' }}>
@@ -281,6 +292,188 @@ function CommandBlock({ label, command }: { label: string; command: string }) {
           {copied ? <Check className='h-4 w-4 text-[#00CF23]' /> : <Copy className='h-4 w-4' />}
         </button>
       </div>
+    </div>
+  );
+}
+
+function ServicesDnsCard({
+  customerId,
+  environment,
+  domain,
+  outputs,
+}: {
+  customerId: string;
+  environment: string;
+  domain: string;
+  outputs?: Record<string, unknown>;
+}) {
+  const [checking, setChecking] = useState(false);
+  const { data: dnsStatus, isFetching } = useDnsStatus(customerId, environment, checking);
+
+  useEffect(() => {
+    if (dnsStatus?.all_healthy) setChecking(false);
+  }, [dnsStatus?.all_healthy]);
+
+  const nlbAddress =
+    (outputs?.nlb_address as string | undefined) ??
+    (outputs?.nlb_dns_name as string | undefined) ??
+    (outputs?.load_balancer_hostname as string | undefined) ??
+    dnsStatus?.nlb_address;
+
+  const cnameTarget = nlbAddress || '<your-nlb-address>';
+
+  return (
+    <div className='rounded-lg bg-[#222222] p-6' style={{ border: '0.5px solid #5B5B5B' }}>
+      <div className='mb-5 flex items-center gap-2'>
+        <Globe className='h-5 w-5 text-[#FF4400]' />
+        <h3 className='text-xl font-semibold text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+          Services & DNS
+        </h3>
+      </div>
+
+      <div className='flex flex-col gap-5'>
+        {/* NLB Address */}
+        {nlbAddress ? (
+          <CommandBlock label='Load Balancer Address' command={nlbAddress} />
+        ) : (
+          <CommandBlock
+            label='Get your NLB address'
+            command='kubectl get svc -n nginx-inc nginx-inc-nginx-ingress-controller -o jsonpath="{.status.loadBalancer.ingress[0].hostname}"'
+          />
+        )}
+
+        {/* Required CNAME Records */}
+        <div className='flex flex-col gap-3'>
+          <div className='flex flex-col gap-1'>
+            <span className='text-sm font-medium text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+              Required DNS Records
+            </span>
+            <span className='text-xs text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+              Add these CNAME records to your DNS provider pointing to your NLB
+            </span>
+          </div>
+          <CnameRow name={`*.hydradb.${domain}`} target={cnameTarget} />
+          <CnameRow name={`*.milvus.hydradb.${domain}`} target={cnameTarget} />
+        </div>
+
+        {/* Service Health Check */}
+        <div className='flex flex-col gap-3'>
+          <div className='flex items-center justify-between'>
+            <span className='text-sm font-medium text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+              Service Health
+            </span>
+            {!dnsStatus?.all_healthy && (
+              <button
+                onClick={() => setChecking((c) => !c)}
+                disabled={isFetching && !dnsStatus}
+                className={
+                  checking
+                    ? 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[#A7A7A7] transition-colors hover:text-white'
+                    : 'flex items-center gap-1.5 rounded-lg bg-[#FF4400] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
+                }
+                style={checking ? { border: '0.5px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' } : { fontFamily: 'Satoshi, sans-serif' }}
+              >
+                {isFetching && !dnsStatus && <Loader2 className='h-3 w-3 animate-spin' />}
+                {checking ? 'Stop Checking' : 'Check DNS Status'}
+              </button>
+            )}
+          </div>
+
+          {!dnsStatus && !isFetching && (
+            <p className='text-xs text-[#6D6D6D]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+              Click &quot;Check DNS Status&quot; to verify your services are reachable.
+            </p>
+          )}
+
+          {isFetching && !dnsStatus && (
+            <div className='flex items-center gap-2 py-2'>
+              <Loader2 className='h-4 w-4 animate-spin text-[#A7A7A7]' />
+              <p className='text-xs text-[#A7A7A7]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                Checking services...
+              </p>
+            </div>
+          )}
+
+          {dnsStatus && (
+            <div className='flex flex-col gap-1'>
+              {dnsStatus.services.map((svc) => (
+                <ServiceRow key={svc.hostname} service={svc} />
+              ))}
+
+              {checking && !dnsStatus.all_healthy && (
+                <p className='mt-2 text-xs text-[#6D6D6D]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                  Auto-checking every 10 seconds...
+                </p>
+              )}
+
+              {dnsStatus.all_healthy && (
+                <div
+                  className='mt-2 rounded-lg p-3'
+                  style={{ background: 'rgba(0, 207, 35, 0.08)', border: '0.5px solid rgba(0, 207, 35, 0.2)' }}
+                >
+                  <p className='text-xs font-medium text-[#00CF23]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                    All services are reachable — DNS is configured correctly.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CnameRow({ name, target }: { name: string; target: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(name);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      className='flex items-center justify-between rounded-lg bg-[#1A1A1A] px-4 py-3'
+      style={{ border: '0.5px solid #3A3A3A' }}
+    >
+      <div className='flex items-center gap-2 overflow-hidden'>
+        <code className='truncate text-sm text-[#22D3EE]' style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+          {name}
+        </code>
+        <span className='flex-shrink-0 text-xs text-[#6D6D6D]'>→</span>
+        <code className='truncate text-sm text-[#A7A7A7]' style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+          {target}
+        </code>
+      </div>
+      <button
+        onClick={handleCopy}
+        className='ml-3 flex-shrink-0 text-[#A7A7A7] transition-colors hover:text-white'
+      >
+        {copied ? <Check className='h-4 w-4 text-[#00CF23]' /> : <Copy className='h-4 w-4' />}
+      </button>
+    </div>
+  );
+}
+
+function ServiceRow({ service }: { service: DnsServiceHealth }) {
+  const color =
+    service.status === 'reachable' ? '#00CF23' : service.status === 'timeout' ? '#FBBF24' : '#EF4444';
+  const label =
+    service.status === 'reachable' ? 'Reachable' : service.status === 'timeout' ? 'Timeout' : 'Unreachable';
+
+  return (
+    <div className='flex items-center justify-between py-1.5'>
+      <div className='flex items-center gap-2.5'>
+        <div className='h-2 w-2 rounded-full' style={{ backgroundColor: color }} />
+        <span className='text-sm text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+          {service.name}
+        </span>
+      </div>
+      <span className='text-xs' style={{ color, fontFamily: 'Satoshi, sans-serif' }}>
+        {label}
+      </span>
     </div>
   );
 }

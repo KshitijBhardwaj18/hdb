@@ -1,10 +1,13 @@
 """Deployment lifecycle endpoints with full state-machine enforcement."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime
 from typing import Any, Never
 
+import requests
+import urllib3
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.auth_models import UserResponse
@@ -13,6 +16,7 @@ from api.database import MAX_DEPLOYMENTS_PER_USER, db
 from api.dependencies import get_current_user
 from api.models import (
     ApiErrorResponse,
+    CnameRecord,
     CustomerDeployment,
     DeploymentEvent,
     DeploymentEventType,
@@ -21,8 +25,12 @@ from api.models import (
     DeploymentStatus,
     DeployRequest,
     DestroyRequest,
+    DnsStatusResponse,
     ErrorCode,
+    ServiceHealthCheck,
 )
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +255,98 @@ async def get_deployment_events(
     ]
 
     return DeploymentEventsResponse(stack_name=stack_name, events=events)
+
+
+# ---------------------------------------------------------------------------
+# DNS Status
+# ---------------------------------------------------------------------------
+
+_SERVICE_SUBDOMAINS = [
+    ("Dashboard", "dashboard"),
+    ("Cortex App", "cortex-app"),
+    ("Cortex Ingestion", "cortex-ingestion"),
+    ("FalkorDB Dashboard", "falkordb-dashboard"),
+    ("Grafana", "grafana"),
+    ("Prometheus", "prometheus"),
+    ("Milvus", "milvus"),
+]
+
+
+def _check_single_service(url: str, timeout: float = 5.0) -> tuple[str, int | None]:
+    """HEAD-check a single URL. Returns (status_string, http_code | None)."""
+    try:
+        resp = requests.head(url, timeout=timeout, verify=False, allow_redirects=True)
+        return ("reachable", resp.status_code)
+    except requests.exceptions.Timeout:
+        return ("timeout", None)
+    except Exception:
+        return ("unreachable", None)
+
+
+@router.get(
+    "/{customer_id}/{environment}/dns-status",
+    response_model=DnsStatusResponse,
+    summary="Check DNS configuration and service health",
+    description="Checks reachability of all service endpoints for a deployment.",
+)
+async def get_dns_status(
+    customer_id: str,
+    environment: str,
+    current_user: UserResponse = Depends(get_current_user),
+) -> DnsStatusResponse:
+    """Check DNS and service health for a customer deployment."""
+    config = config_storage.get(current_user.id, customer_id)
+    if config is None:
+        _raise(ErrorCode.CONFIG_NOT_FOUND, f"Configuration for '{customer_id}' not found", 404)
+
+    domain = config.domain
+
+    # Try to get NLB address from deployment outputs
+    nlb_address: str | None = None
+    deployment = db.get_deployment_for_user(current_user.id, customer_id, environment)
+    if deployment:
+        outputs = _parse_deployment_outputs(deployment.get("outputs"))
+        if outputs:
+            nlb_address = (
+                outputs.get("nlb_address")
+                or outputs.get("nlb_dns_name")
+                or outputs.get("load_balancer_hostname")
+            )
+
+    target_hint = nlb_address or "your-nlb-address.elb.amazonaws.com"
+
+    # Build service list
+    services_to_check = [
+        {"name": name, "hostname": f"{sub}.hydradb.{domain}", "url": f"https://{sub}.hydradb.{domain}"}
+        for name, sub in _SERVICE_SUBDOMAINS
+    ]
+
+    # Check all services concurrently
+    check_results = await asyncio.gather(
+        *(asyncio.to_thread(_check_single_service, svc["url"]) for svc in services_to_check)
+    )
+
+    services = [
+        ServiceHealthCheck(
+            name=svc["name"],
+            hostname=svc["hostname"],
+            url=svc["url"],
+            status=result[0],
+            status_code=result[1],
+        )
+        for svc, result in zip(services_to_check, check_results)
+    ]
+
+    return DnsStatusResponse(
+        domain=domain,
+        nlb_address=nlb_address,
+        cname_records=[
+            CnameRecord(name=f"*.hydradb.{domain}", target=target_hint),
+            CnameRecord(name=f"*.milvus.hydradb.{domain}", target=target_hint),
+        ],
+        services=services,
+        all_healthy=all(s.status == "reachable" for s in services),
+    )
 
 
 # ---------------------------------------------------------------------------

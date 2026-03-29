@@ -1008,3 +1008,36 @@ class ValidationErrorResponse(BaseModel):
     error: str = "validation_error"
     message: str
     details: list[ValidationErrorDetail]
+
+
+# ---------------------------------------------------------------------------
+# DNS status checks
+# ---------------------------------------------------------------------------
+
+
+class ServiceHealthCheck(BaseModel):
+    """Health check result for a single service endpoint."""
+
+    name: str
+    hostname: str
+    url: str
+    status: str
+    status_code: Optional[int] = None
+
+
+class CnameRecord(BaseModel):
+    """Required DNS CNAME record."""
+
+    name: str
+    type: str = "CNAME"
+    target: str
+
+
+class DnsStatusResponse(BaseModel):
+    """DNS configuration and service health status."""
+
+    domain: str
+    nlb_address: Optional[str] = None
+    cname_records: list[CnameRecord]
+    services: list[ServiceHealthCheck]
+    all_healthy: bool
