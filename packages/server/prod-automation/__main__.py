@@ -414,7 +414,7 @@ def _build_cortex_app_policy(args: list) -> str:
         if config.kafka_config.cluster_arn:
             kafka_resource = config.kafka_config.cluster_arn
         elif len(args) > 8 and args[8]:
-            kafka_resource = args[10]
+            kafka_resource = args[8]
 
         # MSK Serverless IAM auth requires separate resource ARNs for
         # cluster connect, topic operations, and consumer group operations.
