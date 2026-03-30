@@ -268,7 +268,9 @@ _SERVICE_SUBDOMAINS = [
     ("FalkorDB Dashboard", "falkordb-dashboard"),
     ("Grafana", "grafana"),
     ("Prometheus", "prometheus"),
-    ("Milvus", "milvus"),
+    ("Milvus Dashboard", "dashboard-milvus"),
+    ("ClickHouse", "clickhouse"),
+    ("ArgoCD", "argocd"),
 ]
 
 
