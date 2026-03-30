@@ -71,6 +71,9 @@ export function mapFormToConfig(data: DeploymentFormData): CustomerConfigInput {
           atlas_org_id: data.atlasOrgId || undefined,
           atlas_project_id: data.atlasProjectId || undefined,
           atlas_cluster_name: data.atlasClusterName || undefined,
+          cluster_region: data.atlasClusterRegion || 'US_EAST_1',
+          db_username: data.mongoDbUsername || undefined,
+          db_password: data.mongoDbPassword || undefined,
         },
   };
 }
@@ -124,6 +127,7 @@ export function mapConfigToForm(config: CustomerConfigResponse): Partial<Deploym
     mongoDbPassword: '',
     atlasProjectId: mongo?.atlas_project_id ?? '',
     atlasClusterName: mongo?.atlas_cluster_name ?? '',
+    atlasClusterRegion: mongo?.cluster_region ?? 'US_EAST_1',
 
     // Kafka
     kafkaSource: kafka?.custom_kafka ? 'byo' : 'managed-msk',

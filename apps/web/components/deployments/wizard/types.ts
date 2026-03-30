@@ -54,6 +54,7 @@ export interface DeploymentFormData {
   mongoDbPassword: string;
   atlasProjectId: string;
   atlasClusterName: string;
+  atlasClusterRegion: string;
   kafkaSource: string;
   kafkaBootstrapServers: string;
   kafkaAuthType: string;
@@ -109,6 +110,7 @@ export const DEFAULT_FORM_DATA: DeploymentFormData = {
   mongoDbPassword: '',
   atlasProjectId: '',
   atlasClusterName: '',
+  atlasClusterRegion: 'US_EAST_1',
   kafkaSource: 'managed-msk',
   kafkaBootstrapServers: '',
   kafkaAuthType: 'IAM',

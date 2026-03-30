@@ -260,7 +260,24 @@ def provision_atlas_cluster(
             if cs else ""
         )
     else:
-        full_uri = connection_string
+        # atlas-peering: inject credentials if provided
+        if mongo_config.db_username and mongo_config.db_password:
+            from urllib.parse import quote_plus
+
+            _encoded_user = quote_plus(mongo_config.db_username)
+            _encoded_pass = quote_plus(mongo_config.db_password)
+
+            full_uri = connection_string.apply(
+                lambda cs: cs.replace(
+                    "mongodb+srv://",
+                    f"mongodb+srv://{_encoded_user}:{_encoded_pass}@",
+                )
+                + "/admin?retryWrites=true&w=majority"
+                if cs
+                else ""
+            )
+        else:
+            full_uri = connection_string
 
     return MongoAtlasResult(
         connection_string=full_uri,

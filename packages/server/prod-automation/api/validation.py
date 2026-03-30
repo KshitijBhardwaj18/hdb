@@ -548,6 +548,20 @@ def validate_mongodb_config(
                         message="Atlas cluster name is required for atlas-peering mode",
                     )
                 )
+            if not mongodb_config.db_username:
+                errors.append(
+                    ValidationErrorDetail(
+                        field="mongodb_config.db_username",
+                        message="Database username is required for atlas-peering mode",
+                    )
+                )
+            if not mongodb_config.db_password:
+                errors.append(
+                    ValidationErrorDetail(
+                        field="mongodb_config.db_password",
+                        message="Database password is required for atlas-peering mode",
+                    )
+                )
 
     # Check Atlas CIDR doesn't overlap with VPC CIDRs
     if mongodb_config.mode in ("atlas", "atlas-peering") and vpc_config:

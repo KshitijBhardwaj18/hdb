@@ -328,6 +328,32 @@ export function StepAddons() {
         {/* Atlas Peering mode fields */}
         {mongoDbMode === 'atlas-peering' && (
           <div className="flex flex-col gap-4">
+            {/* Atlas API credentials */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className={labelClassName}>Atlas Client ID</label>
+                <input
+                  type="text"
+                  {...register('atlasClientId')}
+                  placeholder="Enter client ID"
+                  className={inputClassName}
+                  style={font}
+                />
+                {errors.atlasClientId && <p className={errorClassName}>{errors.atlasClientId.message}</p>}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className={labelClassName}>Atlas Client Secret</label>
+                <input
+                  type="password"
+                  {...register('atlasClientSecret')}
+                  placeholder="Enter client secret"
+                  className={inputClassName}
+                  style={font}
+                />
+                {errors.atlasClientSecret && <p className={errorClassName}>{errors.atlasClientSecret.message}</p>}
+              </div>
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <label className={labelClassName}>Atlas Project ID</label>
               <input
@@ -350,6 +376,85 @@ export function StepAddons() {
                 style={font}
               />
               {errors.atlasClusterName && <p className={errorClassName}>{errors.atlasClusterName.message}</p>}
+            </div>
+
+            {/* Cluster Region */}
+            <div className="flex flex-col gap-1.5">
+              <label className={labelClassName}>Atlas Cluster Region</label>
+              <div className="relative">
+                <select
+                  {...register('atlasClusterRegion')}
+                  className={selectClassName}
+                  style={font}
+                >
+                  <option value="US_EAST_1">US_EAST_1</option>
+                  <option value="US_EAST_2">US_EAST_2</option>
+                  <option value="US_WEST_1">US_WEST_1</option>
+                  <option value="US_WEST_2">US_WEST_2</option>
+                  <option value="EU_WEST_1">EU_WEST_1</option>
+                  <option value="EU_WEST_2">EU_WEST_2</option>
+                  <option value="EU_CENTRAL_1">EU_CENTRAL_1</option>
+                  <option value="AP_SOUTHEAST_1">AP_SOUTHEAST_1</option>
+                  <option value="AP_SOUTHEAST_2">AP_SOUTHEAST_2</option>
+                  <option value="AP_SOUTH_1">AP_SOUTH_1</option>
+                  <option value="AP_NORTHEAST_1">AP_NORTHEAST_1</option>
+                  <option value="SA_EAST_1">SA_EAST_1</option>
+                  <option value="CA_CENTRAL_1">CA_CENTRAL_1</option>
+                </select>
+                <SelectChevron />
+              </div>
+            </div>
+
+            {/* DB credentials */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className={labelClassName}>DB Username</label>
+                <input
+                  type="text"
+                  {...register('mongoDbUsername')}
+                  placeholder="e.g. admin"
+                  className={inputClassName}
+                  style={font}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className={labelClassName}>DB Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    {...register('mongoDbPassword')}
+                    placeholder="Min 8 characters"
+                    className={inputClassName}
+                    style={{ ...font, paddingRight: '2.5rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-3 flex items-center"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      {showPassword ? (
+                        <path
+                          d="M2 8C2 8 4 4 8 4C12 4 14 8 14 8C14 8 12 12 8 12C4 12 2 8 2 8Z"
+                          stroke="#9A9A9A"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ) : (
+                        <path
+                          d="M2 2L14 14M6.5 6.67C6.18 7.02 6 7.49 6 8C6 9.1 6.9 10 8 10C8.51 10 8.98 9.82 9.33 9.5M12.5 10.5C13.39 9.63 14 8.53 14 8C14 8 12 4 8 4C7.36 4 6.77 4.12 6.23 4.31"
+                          stroke="#9A9A9A"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+                    </svg>
+                  </button>
+                </div>
+                {errors.mongoDbPassword && <p className={errorClassName}>{errors.mongoDbPassword.message}</p>}
+              </div>
             </div>
 
             <div
