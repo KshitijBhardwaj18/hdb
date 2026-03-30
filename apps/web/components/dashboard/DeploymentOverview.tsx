@@ -362,19 +362,15 @@ function ServicesDnsCard({
             <span className='text-sm font-medium text-white' style={{ fontFamily: 'Satoshi, sans-serif' }}>
               Service Health
             </span>
-            {!dnsStatus?.all_healthy && (
+            {!dnsStatus?.all_healthy && !checking && (
               <button
-                onClick={() => setChecking((c) => !c)}
+                onClick={() => setChecking(true)}
                 disabled={isFetching && !dnsStatus}
-                className={
-                  checking
-                    ? 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[#A7A7A7] transition-colors hover:text-white'
-                    : 'flex items-center gap-1.5 rounded-lg bg-[#FF4400] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
-                }
-                style={checking ? { border: '0.5px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' } : { fontFamily: 'Satoshi, sans-serif' }}
+                className='flex items-center gap-1.5 rounded-lg bg-[#FF4400] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
+                style={{ fontFamily: 'Satoshi, sans-serif' }}
               >
                 {isFetching && !dnsStatus && <Loader2 className='h-3 w-3 animate-spin' />}
-                {checking ? 'Stop Checking' : 'Check DNS Status'}
+                Check DNS Status
               </button>
             )}
           </div>
@@ -401,9 +397,14 @@ function ServicesDnsCard({
               ))}
 
               {checking && !dnsStatus.all_healthy && (
-                <p className='mt-2 text-xs text-[#6D6D6D]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
-                  Auto-checking every 10 seconds...
-                </p>
+                <div className='mt-2 flex flex-col gap-1'>
+                  <p className='text-xs text-[#6D6D6D]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                    Auto-checking every 10 seconds...
+                  </p>
+                  <p className='text-xs text-[#6D6D6D]' style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                    After adding DNS records, it can take 5-10 minutes for services to become reachable.
+                  </p>
+                </div>
               )}
 
               {dnsStatus.all_healthy && (

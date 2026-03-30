@@ -146,8 +146,8 @@ export default function DeploymentProgressPage() {
   const [, setTick] = useState(0);
   const navigatedRef = useRef(false);
 
-  const { data: deployment } = useDeploymentStatus(customerId, environment);
-  const { data: events = [] } = useDeploymentEvents(customerId, environment);
+  const { data: deployment, refetch: refetchStatus } = useDeploymentStatus(customerId, environment);
+  const { data: events = [], refetch: refetchEvents } = useDeploymentEvents(customerId, environment);
   const retryDeploy = useDeploy();
 
   const backendStatus = deployment?.status;
@@ -237,6 +237,8 @@ export default function DeploymentProgressPage() {
     if (!customerId || !environment) return;
     navigatedRef.current = false;
     await retryDeploy.mutateAsync({ customerId, request: { environment } });
+    // Force immediate refetch so UI picks up the new status without navigating away
+    await Promise.all([refetchStatus(), refetchEvents()]);
   };
 
   const title = isFailed

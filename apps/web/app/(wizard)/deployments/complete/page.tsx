@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Clock, ExternalLink, Trash2 } from 'lucide-react';
+import { Check, Clock, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
@@ -124,13 +124,13 @@ export default function DeploymentCompletePage() {
             Go to Dashboard
           </Link>
           {!destroyed && (
-            <button
+            <Link
+              href='/dashboard'
               className='flex items-center gap-2 rounded-lg bg-white px-6 py-2.5 text-sm font-medium text-[#1D1E1F] transition-colors hover:bg-gray-100'
               style={{ fontFamily: 'Satoshi, sans-serif' }}
             >
-              <ExternalLink className='h-4 w-4' />
-              Open App
-            </button>
+              Setup Ingress
+            </Link>
           )}
         </div>
       </div>
