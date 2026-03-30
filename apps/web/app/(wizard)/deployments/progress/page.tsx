@@ -2,6 +2,7 @@
 
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Clock, Loader2, AlertCircle } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useDeploymentStatus, useDeploymentEvents, useDeploy } from '@/hooks/use-deployment';
 import { DeploymentStatus } from '@/types/deployment.types';
@@ -235,10 +236,19 @@ export default function DeploymentProgressPage() {
 
   const handleRetry = async () => {
     if (!customerId || !environment) return;
-    navigatedRef.current = false;
-    await retryDeploy.mutateAsync({ customerId, request: { environment } });
-    // Force immediate refetch so UI picks up the new status without navigating away
-    await Promise.all([refetchStatus(), refetchEvents()]);
+    try {
+      navigatedRef.current = false;
+      await retryDeploy.mutateAsync({ customerId, request: { environment } });
+      // Force immediate refetch so UI picks up the new status without navigating away
+      await Promise.all([refetchStatus(), refetchEvents()]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to retry deployment';
+      if (message.includes('incomplete') || message.includes('VALIDATION_ERROR')) {
+        toast.error('Configuration is incomplete. Please edit your configuration first.');
+      } else {
+        toast.error(message);
+      }
+    }
   };
 
   const title = isFailed

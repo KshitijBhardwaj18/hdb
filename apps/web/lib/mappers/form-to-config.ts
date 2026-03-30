@@ -74,6 +74,7 @@ export function mapFormToConfig(data: DeploymentFormData): CustomerConfigInput {
           cluster_region: data.atlasClusterRegion || 'US_EAST_1',
           db_username: data.mongoDbUsername || undefined,
           db_password: data.mongoDbPassword || undefined,
+          atlas_cidr_block: '192.168.248.0/21',
         },
   };
 }

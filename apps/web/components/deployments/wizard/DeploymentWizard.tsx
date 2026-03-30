@@ -55,7 +55,7 @@ const STEP_FIELDS: Record<number, (keyof DeploymentFormData)[]> = {
   2: ['awsRegion', 'availabilityZones', 'roleArn', 'externalId', 'awsConnectionVerified'],
   3: ['vpcCidr', 'natGatewayStrategy'],
   4: ['kubernetesVersion'],
-  5: ['mongoDbMode', 'atlasClientId', 'atlasClientSecret', 'atlasOrgId', 'atlasProjectName', 'mongoDbTier', 'mongoDbUsername', 'mongoDbPassword', 'atlasProjectId', 'atlasClusterName', 'kafkaSource', 'kafkaBootstrapServers', 'kafkaAuthType', 'kafkaUsername', 'kafkaPassword'],
+  5: ['mongoDbMode', 'atlasClientId', 'atlasClientSecret', 'atlasOrgId', 'atlasProjectName', 'mongoDbTier', 'mongoDbUsername', 'mongoDbPassword', 'atlasProjectId', 'atlasClusterName', 'atlasClusterRegion', 'kafkaSource', 'kafkaBootstrapServers', 'kafkaAuthType', 'kafkaUsername', 'kafkaPassword'],
 };
 
 export function DeploymentWizard() {
@@ -187,9 +187,9 @@ export function DeploymentWizard() {
     try {
       const config = mapFormToConfig(data);
       if (editCustomerId) {
-        await updateConfig.mutateAsync({ customerId: editCustomerId, input: config });
+        await updateConfig.mutateAsync({ customerId: editCustomerId, input: config, draft: true });
       } else {
-        await createConfig.mutateAsync(config);
+        await createConfig.mutateAsync({ input: config, draft: true });
       }
       clearDraft();
       toast.success('Configuration saved. You can continue later from the dashboard.');
@@ -210,7 +210,7 @@ export function DeploymentWizard() {
         if (editCustomerId) {
           await updateConfig.mutateAsync({ customerId: editCustomerId, input: config });
         } else {
-          await createConfig.mutateAsync(config);
+          await createConfig.mutateAsync({ input: config });
         }
       } catch (configErr) {
         const msg = configErr instanceof Error ? configErr.message : '';

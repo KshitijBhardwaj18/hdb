@@ -2,7 +2,7 @@
 
 from typing import Union
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from api.auth_models import UserResponse
@@ -57,6 +57,7 @@ router = APIRouter(
 async def create_config(
     request: CustomerConfigInput,
     current_user: UserResponse = Depends(get_current_user),
+    draft: bool = Query(False, description="Save as draft without full validation"),
 ) -> Union[CustomerConfigResponse, JSONResponse]:
     """Create a new customer configuration."""
 
@@ -82,7 +83,8 @@ async def create_config(
     try:
         resolved = resolve_customer_config(request)
 
-        validate_config(request, resolved)
+        if not draft:
+            validate_config(request, resolved)
 
         config_storage.save(current_user.id, request.customer_id, resolved)
 
@@ -155,6 +157,7 @@ async def update_config(
     customer_id: str,
     request: CustomerConfigInput,
     current_user: UserResponse = Depends(get_current_user),
+    draft: bool = Query(False, description="Save as draft without full validation"),
 ) -> Union[CustomerConfigResponse, JSONResponse]:
     """Update a customer configuration."""
 
@@ -179,7 +182,8 @@ async def update_config(
 
         resolved.created_at = existing_config.created_at
 
-        validate_config(request, resolved)
+        if not draft:
+            validate_config(request, resolved)
 
         config_storage.save(current_user.id, customer_id, resolved)
 

@@ -14,6 +14,7 @@ from api.auth_models import UserResponse
 from api.config_storage import config_storage
 from api.database import MAX_DEPLOYMENTS_PER_USER, db
 from api.dependencies import get_current_user
+from api.validation import validate_resolved_config
 from api.models import (
     ApiErrorResponse,
     CnameRecord,
@@ -119,6 +120,17 @@ async def deploy(
             f"Configuration for customer '{customer_id}' not found. "
             "Create a configuration first using POST /api/v1/configs",
             http_status=404,
+        )
+
+    # 1b. Validate config (may have been saved as draft with incomplete fields)
+    validation_errors = validate_resolved_config(config)
+    if validation_errors:
+        field_summary = ", ".join(e.field for e in validation_errors[:3])
+        _raise(
+            ErrorCode.VALIDATION_ERROR,
+            f"Configuration is incomplete and cannot be deployed. "
+            f"Please edit your configuration to fix: {field_summary}",
+            http_status=400,
         )
 
     stack_name = f"{customer_id}-{request.environment}"

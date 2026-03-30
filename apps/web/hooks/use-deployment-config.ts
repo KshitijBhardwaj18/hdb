@@ -23,7 +23,8 @@ export function useConfig(customerId: string | null) {
 export function useCreateConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: CustomerConfigInput) => configService.create(input),
+    mutationFn: ({ input, draft }: { input: CustomerConfigInput; draft?: boolean }) =>
+      configService.create(input, { draft }),
     onSuccess: () => qc.invalidateQueries({ queryKey: CONFIGS_KEY }),
   });
 }
@@ -31,8 +32,8 @@ export function useCreateConfig() {
 export function useUpdateConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ customerId, input }: { customerId: string; input: CustomerConfigInput }) =>
-      configService.update(customerId, input),
+    mutationFn: ({ customerId, input, draft }: { customerId: string; input: CustomerConfigInput; draft?: boolean }) =>
+      configService.update(customerId, input, { draft }),
     onSuccess: () => qc.invalidateQueries({ queryKey: CONFIGS_KEY }),
   });
 }
