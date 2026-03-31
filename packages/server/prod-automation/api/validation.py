@@ -533,6 +533,20 @@ def validate_mongodb_config(
                         message="Atlas project name is required when creating a new cluster",
                     )
                 )
+            if not mongodb_config.db_username:
+                errors.append(
+                    ValidationErrorDetail(
+                        field="mongodb_config.db_username",
+                        message="Database username is required for atlas mode",
+                    )
+                )
+            if not mongodb_config.db_password:
+                errors.append(
+                    ValidationErrorDetail(
+                        field="mongodb_config.db_password",
+                        message="Database password is required for atlas mode",
+                    )
+                )
         if mongodb_config.mode == "atlas-peering":
             if not mongodb_config.atlas_project_id:
                 errors.append(

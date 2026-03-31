@@ -71,7 +71,13 @@ export function StepAddons() {
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
-              onClick={() => setValue('mongoDbMode', 'atlas')}
+              onClick={() => {
+                setValue('mongoDbMode', 'atlas');
+                // Clear atlas-peering specific fields
+                setValue('atlasProjectId', '');
+                setValue('atlasClusterName', '');
+                setValue('atlasClusterRegion', 'US_EAST_1');
+              }}
               className="flex flex-col gap-1 rounded-lg px-4 py-3.5 text-left transition-colors"
               style={{
                 backgroundColor: '#202020',
@@ -83,7 +89,13 @@ export function StepAddons() {
             </button>
             <button
               type="button"
-              onClick={() => setValue('mongoDbMode', 'atlas-peering')}
+              onClick={() => {
+                setValue('mongoDbMode', 'atlas-peering');
+                // Clear atlas-managed specific fields
+                setValue('atlasOrgId', '');
+                setValue('atlasProjectName', '');
+                setValue('mongoDbTier', 'M10');
+              }}
               className="flex flex-col gap-1 rounded-lg px-4 py-3.5 text-left transition-colors"
               style={{
                 backgroundColor: '#202020',

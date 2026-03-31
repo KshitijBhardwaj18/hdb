@@ -816,6 +816,7 @@ class CustomerConfigResponse(BaseModel):
             safe_mongodb = config.mongodb_config.model_copy(update={
                 "atlas_client_secret": "***" if config.mongodb_config.atlas_client_secret else None,
                 "db_password": "***" if config.mongodb_config.db_password else None,
+                "connection_uri": "***" if config.mongodb_config.connection_uri else None,
             })
 
         safe_kafka = None
@@ -824,6 +825,15 @@ class CustomerConfigResponse(BaseModel):
                 "password": "***" if config.kafka_config.password else None,
             })
 
+        safe_addons = config.addons
+        if config.addons and config.addons.argocd.repository:
+            repo = config.addons.argocd.repository
+            safe_repo = repo.model_copy(update={
+                "password": "***" if repo.password else "",
+            })
+            safe_argocd = config.addons.argocd.model_copy(update={"repository": safe_repo})
+            safe_addons = config.addons.model_copy(update={"argocd": safe_argocd})
+
         return cls(
             customer_id=config.customer_id,
             environment=config.environment,
@@ -831,7 +841,7 @@ class CustomerConfigResponse(BaseModel):
             aws_region=config.aws_config.region,
             vpc_config=config.vpc_config,
             eks_config=config.eks_config,
-            addons=config.addons,
+            addons=safe_addons,
             kafka_config=safe_kafka,
             mongodb_config=safe_mongodb,
             tags=config.tags,

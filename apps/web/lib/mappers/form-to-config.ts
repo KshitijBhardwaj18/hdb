@@ -93,7 +93,7 @@ export function mapConfigToForm(config: CustomerConfigResponse): Partial<Deploym
     availabilityZones: config.aws_config?.availability_zones ?? ['us-east-1a', 'us-east-1b', 'us-east-1c'],
     roleArn: config.aws_config?.role_arn ?? '',
     externalId: config.aws_config?.external_id ?? '',
-    awsConnectionVerified: false,
+    awsConnectionVerified: true,
     vpcCidr: vpc?.cidr_block ?? '10.0.0.0/16',
     natGatewayStrategy: vpc?.nat_gateway_strategy ?? 'single',
     enableDnsHostnames: true,
@@ -120,12 +120,12 @@ export function mapConfigToForm(config: CustomerConfigResponse): Partial<Deploym
     // MongoDB
     mongoDbMode: mongo?.mode ?? 'atlas',
     atlasClientId: mongo?.atlas_client_id ?? '',
-    atlasClientSecret: '',
+    atlasClientSecret: mongo?.atlas_client_secret ?? '',
     atlasOrgId: mongo?.atlas_org_id ?? '',
     atlasProjectName: mongo?.atlas_project_name ?? '',
     mongoDbTier: mongo?.cluster_tier ?? 'M10',
     mongoDbUsername: mongo?.db_username ?? 'cortex',
-    mongoDbPassword: '',
+    mongoDbPassword: mongo?.db_password ?? '',
     atlasProjectId: mongo?.atlas_project_id ?? '',
     atlasClusterName: mongo?.atlas_cluster_name ?? '',
     atlasClusterRegion: mongo?.cluster_region ?? 'US_EAST_1',
@@ -134,7 +134,7 @@ export function mapConfigToForm(config: CustomerConfigResponse): Partial<Deploym
     kafkaSource: kafka?.custom_kafka ? 'byo' : 'managed-msk',
     kafkaBootstrapServers: kafka?.bootstrap_servers ?? '',
     kafkaAuthType: kafka?.auth_type ?? 'IAM',
-    kafkaUsername: '',
-    kafkaPassword: '',
+    kafkaUsername: kafka?.username ?? '',
+    kafkaPassword: kafka?.password ?? '',
   };
 }

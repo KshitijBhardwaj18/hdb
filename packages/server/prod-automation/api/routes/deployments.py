@@ -14,7 +14,6 @@ from api.auth_models import UserResponse
 from api.config_storage import config_storage
 from api.database import MAX_DEPLOYMENTS_PER_USER, db
 from api.dependencies import get_current_user
-from api.validation import validate_resolved_config
 from api.models import (
     ApiErrorResponse,
     CnameRecord,
@@ -122,14 +121,16 @@ async def deploy(
             http_status=404,
         )
 
-    # 1b. Validate config (may have been saved as draft with incomplete fields)
+    # 1b. Re-validate config before dispatching — catches configs saved before
+    #     stricter validation rules were added or corrupted by manual edits.
+    from api.validation import validate_resolved_config
+
     validation_errors = validate_resolved_config(config)
     if validation_errors:
-        field_summary = ", ".join(e.field for e in validation_errors[:3])
+        messages = [f"{e.field}: {e.message}" for e in validation_errors]
         _raise(
             ErrorCode.VALIDATION_ERROR,
-            f"Configuration is incomplete and cannot be deployed. "
-            f"Please edit your configuration to fix: {field_summary}",
+            f"Configuration is incomplete or invalid: {'; '.join(messages)}",
             http_status=400,
         )
 

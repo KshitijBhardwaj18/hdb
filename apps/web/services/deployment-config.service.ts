@@ -5,18 +5,16 @@ import type {
 } from '@/types/deployment.types';
 
 export const configService = {
-  create(input: CustomerConfigInput, opts?: { draft?: boolean }): Promise<CustomerConfigResponse> {
-    const qs = opts?.draft ? '?draft=true' : '';
-    return ApiClient.post<CustomerConfigResponse>(`/api/v1/configs${qs}`, input);
+  create(input: CustomerConfigInput): Promise<CustomerConfigResponse> {
+    return ApiClient.post<CustomerConfigResponse>('/api/v1/configs', input);
   },
 
   get(customerId: string): Promise<CustomerConfigResponse> {
     return ApiClient.get<CustomerConfigResponse>(`/api/v1/configs/${customerId}`);
   },
 
-  update(customerId: string, input: CustomerConfigInput, opts?: { draft?: boolean }): Promise<CustomerConfigResponse> {
-    const qs = opts?.draft ? '?draft=true' : '';
-    return ApiClient.put<CustomerConfigResponse>(`/api/v1/configs/${customerId}${qs}`, input);
+  update(customerId: string, input: CustomerConfigInput): Promise<CustomerConfigResponse> {
+    return ApiClient.put<CustomerConfigResponse>(`/api/v1/configs/${customerId}`, input);
   },
 
   list(): Promise<{ configs: CustomerConfigResponse[] }> {

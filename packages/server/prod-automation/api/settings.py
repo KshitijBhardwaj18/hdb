@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Config storage — kept for backward compat but now backed by MongoDB
     config_storage_path: str = "config"
 
+    # Encryption key for sensitive config fields (Fernet)
+    config_encryption_key: str = ""
+
     # GitHub (for GitOps writer)
     github_pat: str = ""
     github_repo: str = ""
@@ -89,6 +92,12 @@ def get_settings() -> Settings:
         missing.append("GITHUB_PAT")
     if not s.github_repo:
         missing.append("GITHUB_REPO")
+    if not s.config_encryption_key:
+        _settings_logger.warning(
+            "CONFIG_ENCRYPTION_KEY is not set — sensitive config fields will be "
+            "stored in PLAINTEXT in MongoDB. Generate one with: "
+            'python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        )
     if missing:
         _settings_logger.warning(
             "Missing required environment variables: %s. "

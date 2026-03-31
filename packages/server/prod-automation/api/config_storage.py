@@ -12,6 +12,67 @@ from api.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Sensitive field paths to encrypt/decrypt in MongoDB documents
+_SENSITIVE_PATHS = [
+    ("aws_config", "external_id"),
+    ("mongodb_config", "atlas_client_secret"),
+    ("mongodb_config", "db_password"),
+    ("mongodb_config", "connection_uri"),
+    ("kafka_config", "password"),
+    ("addons", "argocd", "repository", "password"),
+]
+
+
+def _get_cipher():
+    """Get Fernet cipher if encryption key is configured."""
+    key = settings.config_encryption_key
+    if not key:
+        return None
+    from cryptography.fernet import Fernet
+
+    return Fernet(key.encode())
+
+
+def _walk_path(doc: dict, path: tuple) -> tuple[Optional[dict], str]:
+    """Walk a nested dict path, return (parent_dict, final_key) or (None, '') if missing."""
+    obj = doc
+    for key in path[:-1]:
+        if not isinstance(obj, dict):
+            return None, ""
+        obj = obj.get(key)
+        if obj is None:
+            return None, ""
+    return obj, path[-1]
+
+
+def _encrypt_sensitive_fields(doc: dict) -> None:
+    cipher = _get_cipher()
+    if not cipher:
+        return
+    for path in _SENSITIVE_PATHS:
+        parent, key = _walk_path(doc, path)
+        if parent and parent.get(key):
+            val = parent[key]
+            if isinstance(val, str) and not val.startswith("gAAAAA"):
+                parent[key] = cipher.encrypt(val.encode()).decode()
+
+
+def _decrypt_sensitive_fields(doc: dict) -> None:
+    cipher = _get_cipher()
+    if not cipher:
+        return
+    for path in _SENSITIVE_PATHS:
+        parent, key = _walk_path(doc, path)
+        if parent and parent.get(key):
+            val = parent[key]
+            if isinstance(val, str) and val.startswith("gAAAAA"):
+                try:
+                    parent[key] = cipher.decrypt(val.encode()).decode()
+                except Exception:
+                    logger.warning(
+                        "Failed to decrypt field %s, leaving as-is", ".".join(path)
+                    )
+
 
 class ConfigStorageBackend(ABC):
     @abstractmethod
@@ -45,7 +106,6 @@ class MongoConfigStorage(ConfigStorageBackend):
         self._db = self._client[self._db_name]
         self._configs: Collection[dict[str, Any]] = self._db["configs"]
 
-        # Compound unique index: each user has their own namespace for customer_ids
         self._configs.create_index(
             [("user_id", 1), ("customer_id", 1)],
             unique=True,
@@ -56,6 +116,7 @@ class MongoConfigStorage(ConfigStorageBackend):
         doc = config.model_dump(mode="json")
         doc["customer_id"] = customer_id
         doc["user_id"] = user_id
+        _encrypt_sensitive_fields(doc)
         self._configs.replace_one(
             {"user_id": user_id, "customer_id": customer_id},
             doc,
@@ -68,6 +129,7 @@ class MongoConfigStorage(ConfigStorageBackend):
             return None
         doc.pop("_id", None)
         doc.pop("user_id", None)
+        _decrypt_sensitive_fields(doc)
         return CustomerConfigResolved.model_validate(doc)
 
     def delete(self, user_id: str, customer_id: str) -> bool:
@@ -79,6 +141,7 @@ class MongoConfigStorage(ConfigStorageBackend):
         for doc in self._configs.find({"user_id": user_id}):
             doc.pop("_id", None)
             doc.pop("user_id", None)
+            _decrypt_sensitive_fields(doc)
             try:
                 configs.append(CustomerConfigResolved.model_validate(doc))
             except Exception:
@@ -100,6 +163,7 @@ class MongoConfigStorage(ConfigStorageBackend):
             return None
         doc.pop("_id", None)
         doc.pop("user_id", None)
+        _decrypt_sensitive_fields(doc)
         return CustomerConfigResolved.model_validate(doc)
 
 

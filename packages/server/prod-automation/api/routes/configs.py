@@ -2,7 +2,7 @@
 
 from typing import Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from api.auth_models import UserResponse
@@ -57,7 +57,6 @@ router = APIRouter(
 async def create_config(
     request: CustomerConfigInput,
     current_user: UserResponse = Depends(get_current_user),
-    draft: bool = Query(False, description="Save as draft without full validation"),
 ) -> Union[CustomerConfigResponse, JSONResponse]:
     """Create a new customer configuration."""
 
@@ -83,8 +82,7 @@ async def create_config(
     try:
         resolved = resolve_customer_config(request)
 
-        if not draft:
-            validate_config(request, resolved)
+        validate_config(request, resolved)
 
         config_storage.save(current_user.id, request.customer_id, resolved)
 
@@ -157,7 +155,6 @@ async def update_config(
     customer_id: str,
     request: CustomerConfigInput,
     current_user: UserResponse = Depends(get_current_user),
-    draft: bool = Query(False, description="Save as draft without full validation"),
 ) -> Union[CustomerConfigResponse, JSONResponse]:
     """Update a customer configuration."""
 
@@ -182,8 +179,28 @@ async def update_config(
 
         resolved.created_at = existing_config.created_at
 
-        if not draft:
-            validate_config(request, resolved)
+        # Preserve secrets when client sends the redacted placeholder "***"
+        _REDACTED = "***"
+        if resolved.mongodb_config and existing_config.mongodb_config:
+            if resolved.mongodb_config.atlas_client_secret == _REDACTED:
+                resolved.mongodb_config.atlas_client_secret = existing_config.mongodb_config.atlas_client_secret
+            if resolved.mongodb_config.db_password == _REDACTED:
+                resolved.mongodb_config.db_password = existing_config.mongodb_config.db_password
+            if resolved.mongodb_config.connection_uri == _REDACTED:
+                resolved.mongodb_config.connection_uri = existing_config.mongodb_config.connection_uri
+        if resolved.kafka_config and existing_config.kafka_config:
+            if resolved.kafka_config.password == _REDACTED:
+                resolved.kafka_config.password = existing_config.kafka_config.password
+        if (
+            resolved.addons
+            and resolved.addons.argocd.repository
+            and existing_config.addons
+            and existing_config.addons.argocd.repository
+            and resolved.addons.argocd.repository.password == _REDACTED
+        ):
+            resolved.addons.argocd.repository.password = existing_config.addons.argocd.repository.password
+
+        validate_config(request, resolved)
 
         config_storage.save(current_user.id, customer_id, resolved)
 

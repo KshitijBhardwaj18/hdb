@@ -116,45 +116,49 @@ export function DeploymentWizard() {
   const deploy = useDeploy();
   const atlasHasWarnings = watch('atlasHasWarnings');
 
+  const validateServicesFields = useCallback(() => {
+    const data = getValues();
+    const serviceFields = {
+      mongoDbMode: data.mongoDbMode,
+      atlasClientId: data.atlasClientId,
+      atlasClientSecret: data.atlasClientSecret,
+      atlasOrgId: data.atlasOrgId,
+      atlasProjectName: data.atlasProjectName,
+      mongoDbTier: data.mongoDbTier,
+      mongoDbUsername: data.mongoDbUsername,
+      mongoDbPassword: data.mongoDbPassword,
+      atlasProjectId: data.atlasProjectId,
+      atlasClusterName: data.atlasClusterName,
+      atlasClusterRegion: data.atlasClusterRegion,
+      kafkaSource: data.kafkaSource,
+      kafkaBootstrapServers: data.kafkaBootstrapServers,
+      kafkaAuthType: data.kafkaAuthType,
+      kafkaUsername: data.kafkaUsername,
+      kafkaPassword: data.kafkaPassword,
+    };
+    const result = stepServicesSchema.safeParse(serviceFields);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        const path = issue.path[0] as keyof DeploymentFormData;
+        if (path) {
+          methods.setError(path, { type: 'manual', message: issue.message });
+        }
+      }
+      return false;
+    }
+    return true;
+  }, [getValues, methods]);
+
   const validateCurrentStep = useCallback(async () => {
     // Step 5 uses discriminated union — validate with schema directly
     if (currentStep === 5) {
-      const data = getValues();
-      const serviceFields = {
-        mongoDbMode: data.mongoDbMode,
-        atlasClientId: data.atlasClientId,
-        atlasClientSecret: data.atlasClientSecret,
-        atlasOrgId: data.atlasOrgId,
-        atlasProjectName: data.atlasProjectName,
-        mongoDbTier: data.mongoDbTier,
-        mongoDbUsername: data.mongoDbUsername,
-        mongoDbPassword: data.mongoDbPassword,
-        atlasProjectId: data.atlasProjectId,
-        atlasClusterName: data.atlasClusterName,
-        kafkaSource: data.kafkaSource,
-        kafkaBootstrapServers: data.kafkaBootstrapServers,
-        kafkaAuthType: data.kafkaAuthType,
-        kafkaUsername: data.kafkaUsername,
-        kafkaPassword: data.kafkaPassword,
-      };
-      const result = stepServicesSchema.safeParse(serviceFields);
-      if (!result.success) {
-        // Set errors on form fields
-        for (const issue of result.error.issues) {
-          const path = issue.path[0] as keyof DeploymentFormData;
-          if (path) {
-            methods.setError(path, { type: 'manual', message: issue.message });
-          }
-        }
-        return false;
-      }
-      return true;
+      return validateServicesFields();
     }
 
     const fields = STEP_FIELDS[currentStep];
     if (!fields) return true;
     return trigger(fields);
-  }, [currentStep, trigger, getValues, methods]);
+  }, [currentStep, trigger, validateServicesFields]);
 
   const handleNext = async () => {
     const valid = await validateCurrentStep();
@@ -175,31 +179,6 @@ export function DeploymentWizard() {
     }
   };
 
-  const handleSaveDraft = async () => {
-    const data = getValues();
-    // Validate basic info at minimum so we have a customer ID
-    const basicValid = await trigger(STEP_FIELDS[1]!);
-    if (!basicValid) {
-      toast.error('Please fill in the basic information first.');
-      return;
-    }
-
-    try {
-      const config = mapFormToConfig(data);
-      if (editCustomerId) {
-        await updateConfig.mutateAsync({ customerId: editCustomerId, input: config, draft: true });
-      } else {
-        await createConfig.mutateAsync({ input: config, draft: true });
-      }
-      clearDraft();
-      toast.success('Configuration saved. You can continue later from the dashboard.');
-      router.push('/dashboard');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save configuration';
-      toast.error(message);
-    }
-  };
-
   const handleDeploy = async (data: DeploymentFormData) => {
     setIsDeploying(true);
     try {
@@ -210,7 +189,7 @@ export function DeploymentWizard() {
         if (editCustomerId) {
           await updateConfig.mutateAsync({ customerId: editCustomerId, input: config });
         } else {
-          await createConfig.mutateAsync({ input: config });
+          await createConfig.mutateAsync(config);
         }
       } catch (configErr) {
         const msg = configErr instanceof Error ? configErr.message : '';
@@ -298,25 +277,25 @@ export function DeploymentWizard() {
           </button>
 
           <div className='flex items-center gap-3'>
-            <button
-              type='button'
-              onClick={handleSaveDraft}
-              disabled={createConfig.isPending || updateConfig.isPending}
-              className='rounded-lg bg-[#2A2A2A] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#353535] disabled:opacity-60'
-              style={{ border: '0.67px solid #5B5B5B', fontFamily: 'Satoshi, sans-serif' }}
-            >
-              {createConfig.isPending || updateConfig.isPending ? 'Saving...' : 'Deploy Later'}
-            </button>
-
             {isLastStep ? (
               <button
                 type='button'
-                onClick={handleSubmit(() => setShowDeployConfirm(true), (errors) => {
-                  console.error('Form validation errors:', errors);
-                  const firstError = Object.values(errors)[0];
-                  const msg = firstError?.message || firstError?.root?.message || 'Please fix form errors before deploying.';
-                  toast.error(typeof msg === 'string' ? msg : 'Please fix form errors before deploying.');
-                })}
+                onClick={() => {
+                  // Run strict discriminated-union validation for services fields
+                  if (!validateServicesFields()) {
+                    toast.error('Please fix the Services configuration before deploying.');
+                    return;
+                  }
+                  // Then run full form validation via resolver
+                  handleSubmit(
+                    () => setShowDeployConfirm(true),
+                    (errors) => {
+                      const firstError = Object.values(errors)[0];
+                      const msg = firstError?.message || firstError?.root?.message || 'Please fix form errors before deploying.';
+                      toast.error(typeof msg === 'string' ? msg : 'Please fix form errors before deploying.');
+                    },
+                  )();
+                }}
                 disabled={isDeploying || atlasHasWarnings}
                 className='flex items-center gap-2 rounded-lg bg-[#FF4400] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#E63D00] disabled:opacity-60'
                 style={{ fontFamily: 'Satoshi, sans-serif' }}
