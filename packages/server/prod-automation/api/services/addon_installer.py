@@ -559,6 +559,7 @@ echo "==> Milvus Operator installation complete!"
 
     def _build_monitoring_and_data_pipeline_script(self, cluster_name: str) -> str:
         """Build script to install monitoring stack, ClickHouse operator, and Vector prerequisites."""
+        grafana_pw = settings.grafana_admin_password or "Prod_Grafana_Pass123!"
         return f"""
 # =============================================================================
 # CLICKHOUSE STORAGE CLASS
@@ -664,9 +665,9 @@ helm repo update
 
 if helm status monitoring -n monitoring &>/dev/null; then
     echo "==> Monitoring stack already installed, upgrading..."
-    helm upgrade monitoring prometheus-community/kube-prometheus-stack --namespace monitoring --version 65.1.1 --set prometheus.prometheusSpec.nodeSelector.role=general --set grafana.nodeSelector.role=general --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.retention=10d --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName=gp2 --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=20Gi --set grafana.persistence.enabled=true --set grafana.persistence.storageClassName=gp2 --set grafana.persistence.size=2Gi --set grafana.adminPassword="Prod_Grafana_Pass123!" --set alertmanager.enabled=false --set nodeExporter.enabled=true --set grafana.sidecar.dashboards.enabled=true --set grafana.sidecar.dashboards.label=grafana_dashboard --set grafana.sidecar.dashboards.labelValue=1 --set grafana.sidecar.dashboards.searchNamespace=monitoring --set grafana.sidecar.dashboards.folderAnnotation=grafana_folder --set grafana.sidecar.dashboards.foldersFromFilesStructure=true --set grafana.sidecar.datasources.enabled=true --set grafana.sidecar.datasources.searchNamespace=monitoring --wait --timeout 10m
+    helm upgrade monitoring prometheus-community/kube-prometheus-stack --namespace monitoring --version 65.1.1 --set prometheus.prometheusSpec.nodeSelector.role=general --set grafana.nodeSelector.role=general --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.retention=10d --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName=gp2 --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=20Gi --set grafana.persistence.enabled=true --set grafana.persistence.storageClassName=gp2 --set grafana.persistence.size=2Gi --set grafana.adminPassword="{grafana_pw}" --set alertmanager.enabled=false --set nodeExporter.enabled=true --set grafana.sidecar.dashboards.enabled=true --set grafana.sidecar.dashboards.label=grafana_dashboard --set grafana.sidecar.dashboards.labelValue=1 --set grafana.sidecar.dashboards.searchNamespace=monitoring --set grafana.sidecar.dashboards.folderAnnotation=grafana_folder --set grafana.sidecar.dashboards.foldersFromFilesStructure=true --set grafana.sidecar.datasources.enabled=true --set grafana.sidecar.datasources.searchNamespace=monitoring --wait --timeout 10m
 else
-    helm install monitoring prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace --version 65.1.1 --set prometheus.prometheusSpec.nodeSelector.role=general --set grafana.nodeSelector.role=general --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.retention=10d --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName=gp2 --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=20Gi --set grafana.persistence.enabled=true --set grafana.persistence.storageClassName=gp2 --set grafana.persistence.size=2Gi --set grafana.adminPassword="Prod_Grafana_Pass123!" --set alertmanager.enabled=false --set nodeExporter.enabled=true --set grafana.sidecar.dashboards.enabled=true --set grafana.sidecar.dashboards.label=grafana_dashboard --set grafana.sidecar.dashboards.labelValue=1 --set grafana.sidecar.dashboards.searchNamespace=monitoring --set grafana.sidecar.dashboards.folderAnnotation=grafana_folder --set grafana.sidecar.dashboards.foldersFromFilesStructure=true --set grafana.sidecar.datasources.enabled=true --set grafana.sidecar.datasources.searchNamespace=monitoring --wait --timeout 10m
+    helm install monitoring prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace --version 65.1.1 --set prometheus.prometheusSpec.nodeSelector.role=general --set grafana.nodeSelector.role=general --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false --set prometheus.prometheusSpec.retention=10d --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName=gp2 --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=20Gi --set grafana.persistence.enabled=true --set grafana.persistence.storageClassName=gp2 --set grafana.persistence.size=2Gi --set grafana.adminPassword="{grafana_pw}" --set alertmanager.enabled=false --set nodeExporter.enabled=true --set grafana.sidecar.dashboards.enabled=true --set grafana.sidecar.dashboards.label=grafana_dashboard --set grafana.sidecar.dashboards.labelValue=1 --set grafana.sidecar.dashboards.searchNamespace=monitoring --set grafana.sidecar.dashboards.folderAnnotation=grafana_folder --set grafana.sidecar.dashboards.foldersFromFilesStructure=true --set grafana.sidecar.datasources.enabled=true --set grafana.sidecar.datasources.searchNamespace=monitoring --wait --timeout 10m
 fi
 
 echo "==> Waiting for monitoring pods..."
@@ -675,6 +676,20 @@ kubectl wait --for=condition=available --timeout=300s deployment/monitoring-kube
 echo "==> Monitoring pods:"
 kubectl get pods -n monitoring
 echo "==> Monitoring stack installation complete!"
+
+# =============================================================================
+# METRICS SERVER
+# =============================================================================
+echo "==> Installing metrics-server..."
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ || true
+helm repo update metrics-server
+if helm status metrics-server -n kube-system &>/dev/null; then
+    echo "==> metrics-server already installed, upgrading..."
+    helm upgrade metrics-server metrics-server/metrics-server --namespace kube-system --set nodeSelector.role=general --wait --timeout 5m
+else
+    helm install metrics-server metrics-server/metrics-server --namespace kube-system --set nodeSelector.role=general --wait --timeout 5m
+fi
+echo "==> metrics-server installed!"
 
 # =============================================================================
 # CERT-MANAGER

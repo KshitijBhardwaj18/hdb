@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     # Platform-managed secrets (from .env, not from customer)
     falkordb_password: str = ""
     milvus_token: str = ""
+    grafana_admin_password: str = ""
 
     # NextJS platform secrets
     nextjs_nextauth_secret: str = ""
