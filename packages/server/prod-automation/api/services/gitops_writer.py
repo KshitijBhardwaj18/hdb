@@ -467,10 +467,8 @@ spec:
           - path: "gitops/{self.customer_id}/values/falkordb-tenant-*-values.yaml"
   template:
     metadata:
-      name: "falkordb-{{{{ .path.filenameNormalized }}}}"
+      name: '{{{{ trimSuffix "-values.yaml" .path.filename }}}}'
       namespace: argocd
-      finalizers:
-        - resources-finalizer.argocd.argoproj.io
     spec:
       project: default
       sources:
@@ -481,9 +479,9 @@ spec:
           targetRevision: {self.branch}
           path: prod/falkordb/helm/falkor-chart
           helm:
-            releaseName: "falkordb-{{{{ .path.filenameNormalized }}}}"
+            releaseName: '{{{{ trimSuffix "-values.yaml" .path.filename }}}}'
             valueFiles:
-              - "$values/{{{{ .path.path }}}}"
+              - "$values/{{{{ .path.path }}}}/{{{{ .path.filename }}}}"
       destination:
         server: https://kubernetes.default.svc
         namespace: falkordb-{self.customer_id}
@@ -492,7 +490,6 @@ spec:
           prune: true
           selfHeal: true
         syncOptions:
-          - CreateNamespace=true
           - ServerSideApply=true
           - RespectIgnoreDifferences=true
       ignoreDifferences:
