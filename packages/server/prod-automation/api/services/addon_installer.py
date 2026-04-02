@@ -692,6 +692,20 @@ fi
 echo "==> metrics-server installed!"
 
 # =============================================================================
+# STAKATER RELOADER
+# =============================================================================
+echo "==> Installing Stakater Reloader..."
+helm repo add stakater https://stakater.github.io/stakater-charts || true
+helm repo update stakater
+if helm status reloader -n kube-system &>/dev/null; then
+    echo "==> Reloader already installed, upgrading..."
+    helm upgrade reloader stakater/reloader --namespace kube-system --set nodeSelector.role=general --wait --timeout 5m
+else
+    helm install reloader stakater/reloader --namespace kube-system --set nodeSelector.role=general --wait --timeout 5m
+fi
+echo "==> Reloader installed!"
+
+# =============================================================================
 # CERT-MANAGER
 # =============================================================================
 echo "==> Installing cert-manager..."
