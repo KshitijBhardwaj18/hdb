@@ -36,6 +36,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: nextjs-config
+            {{- if .Values.externalSecret.enabled }}
+            - secretRef:
+                name: nextjs-secrets
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:

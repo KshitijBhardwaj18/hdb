@@ -42,3 +42,8 @@ pdb:
 
 monitoring:
   enabled: false
+
+externalSecret:
+  enabled: false
+  storeName: aws-secrets-manager
+  secretPath: ""
