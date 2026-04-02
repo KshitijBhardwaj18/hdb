@@ -23,6 +23,8 @@ spec:
       labels:
         app.kubernetes.io/name: nextjs
         app.kubernetes.io/component: frontend
+      annotations:
+        reloader.stakater.com/auto: "true"
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:

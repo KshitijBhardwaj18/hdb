@@ -44,6 +44,7 @@ monitoring:
   enabled: false
 
 externalSecret:
-  enabled: false
+  enabled: true
   storeName: aws-secrets-manager
-  secretPath: ""
+  secretPath: /byoc/cortex1/nextjs
+  refreshInterval: 5m

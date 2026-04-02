@@ -24,6 +24,7 @@ spec:
         app.kubernetes.io/name: cortex-ingestion
         app.kubernetes.io/component: worker
       annotations:
+        reloader.stakater.com/auto: "true"
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"

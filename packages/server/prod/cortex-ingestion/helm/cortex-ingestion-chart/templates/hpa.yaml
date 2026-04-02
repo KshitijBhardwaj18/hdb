@@ -20,12 +20,6 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.hpa.targetCPUUtilization }}
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.hpa.targetMemoryUtilization }}
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300

@@ -97,4 +97,4 @@ externalSecrets:
   enabled: true
   storeName: aws-secrets-manager
   secretKey: /byoc/heizen/cortex-ingestion
-  refreshInterval: 1h
+  refreshInterval: 5m

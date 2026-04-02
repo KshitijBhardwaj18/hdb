@@ -94,6 +94,7 @@ ingress:
   hostname: "cortex-app.hydradb.{self.domain}"
 
 externalSecrets:
+  refreshInterval: "5m"
   secretKey: "/byoc/{org}/cortex-app"
   argocdTokenSecretKey: "/byoc/{org}/argocd-generated-tokens"
 """
@@ -134,6 +135,7 @@ ingress:
   hostname: "cortex-ingestion.hydradb.{self.domain}"
 
 externalSecrets:
+  refreshInterval: "5m"
   secretKey: "/byoc/{org}/cortex-ingestion"
 """
 
@@ -168,6 +170,7 @@ externalSecrets:
         nextjs_eso_block = f"""
 externalSecret:
   enabled: true
+  refreshInterval: "5m"
   storeName: aws-secrets-manager
   secretPath: /byoc/{org}/nextjs"""
 
