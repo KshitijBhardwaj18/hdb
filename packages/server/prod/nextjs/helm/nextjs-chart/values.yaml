@@ -1,9 +1,9 @@
 namespace: nextjs
 
 image:
-  repository: 225919348997.dkr.ecr.us-east-1.amazonaws.com/deployments/on-prem
-  tag: dashboard-v1
-  pullPolicy: IfNotPresent
+  repository: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-dashboard
+  tag: latest
+  pullPolicy: Always
 
 replicas: 2
 

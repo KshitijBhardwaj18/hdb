@@ -1,7 +1,7 @@
 namespace: cortex-ingestion
 
 image:
-  repository: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-app
+  repository: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-ingestion
   tag: latest
   pullPolicy: Always
 

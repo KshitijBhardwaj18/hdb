@@ -13,10 +13,22 @@ vector:
         extra_label_selector: 'app.kubernetes.io/name in (cortex-app, cortex-ingestion)'
 
     transforms:
+      multiline_merge:
+        type: reduce
+        inputs:
+          - kubernetes_logs
+        group_by:
+          - kubernetes.pod_name
+        merge_strategies:
+          message: concat_newline
+        ends_when: |
+          match(string!(.message), r'^(INFO:|INFO |WARNING:|ERROR:|DEBUG:|CRITICAL:|I\d{4}\s|\d{4}-\d{2}-\d{2}[\sT]|\{)')
+        expire_idle_after_ms: 2000
+
       parse_json:
         type: remap
         inputs:
-          - kubernetes_logs
+          - multiline_merge
         source: |
           raw_msg = string!(.message)
           parsed, err = parse_json(raw_msg)
