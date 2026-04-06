@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-ingresses
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/usecortex/on-prem-deployment-automation.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://github.com/usecortex/on-prem-deployment-automation.git
+      targetRevision: main
+      path: prod/monitoring/helm/monitoring-ingresses
+      helm:
+        releaseName: monitoring-ingresses
+        valueFiles:
+          - $values/gitops/hydradb-test-2/values/monitoring-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+      - CreateNamespace=true
+  ignoreDifferences:
+    - group: ""
+      kind: Service
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/finalizers

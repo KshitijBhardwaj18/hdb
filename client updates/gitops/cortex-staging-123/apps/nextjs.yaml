@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nextjs
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/usecortex/on-prem-deployment-automation.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://github.com/usecortex/on-prem-deployment-automation.git
+      targetRevision: main
+      path: prod/nextjs/helm/nextjs-chart
+      helm:
+        releaseName: nextjs
+        valueFiles:
+          - $values/gitops/cortex-staging-123/values/nextjs-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nextjs
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: networking.k8s.io
+      kind: Ingress
+      jqPathExpressions:
+        - .metadata.annotations
+        - .spec.rules
+        - .spec.tls

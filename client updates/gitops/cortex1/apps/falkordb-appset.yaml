@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: falkordb-tenants
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/usecortex/on-prem-deployment-automation.git
+        revision: main
+        files:
+          - path: "gitops/cortex1/values/falkordb-tenant-*-values.yaml"
+          - path: "gitops/cortex1/values/falkordb-*.values.yaml"
+  template:
+    metadata:
+      name: '{{ .path.filename | trimSuffix "-values.yaml" | trimSuffix ".values.yaml" }}'
+      namespace: argocd
+    spec:
+      project: default
+      sources:
+        - repoURL: https://github.com/usecortex/on-prem-deployment-automation.git
+          targetRevision: main
+          ref: values
+        - repoURL: https://github.com/usecortex/on-prem-deployment-automation.git
+          targetRevision: main
+          path: prod/falkordb/helm/falkor-chart
+          helm:
+            releaseName: '{{ .path.filename | trimSuffix "-values.yaml" | trimSuffix ".values.yaml" }}'
+            valueFiles:
+              - "$values/{{ .path.path }}/{{ .path.filename }}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: falkordb-cortex1
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+      ignoreDifferences:
+        - group: apps.kubeblocks.io
+          kind: Cluster
+          jqPathExpressions:
+            - .spec
+            - .metadata.annotations
+            - .metadata.finalizers
