@@ -1,0 +1,296 @@
+"""Customer configuration management endpoints."""
+
+from typing import Union
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
+
+from api.auth_models import UserResponse
+from api.config_resolver import resolve_customer_config
+from api.config_storage import config_storage
+from api.database import db
+from api.dependencies import get_current_user
+from api.models import (
+    ApiErrorResponse,
+    CustomerConfigInput,
+    CustomerConfigListResponse,
+    CustomerConfigResolved,
+    CustomerConfigResponse,
+    DeploymentStatus,
+    ErrorCode,
+    ValidationErrorResponse,
+)
+from api.validation import ConfigValidationError, validate_config
+
+
+def _check_config_not_locked(user_id: str, customer_id: str, environment: str = "prod") -> None:
+    """Raise 409 if the deployment is in a non-editable state."""
+    if db.has_active_deployment(user_id, customer_id, environment):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ApiErrorResponse(
+                code=ErrorCode.CONFIG_LOCKED,
+                message=f"Configuration for '{customer_id}' cannot be modified while a "
+                "deployment is pending, in progress, or being destroyed. "
+                "Wait for the operation to complete first.",
+            ).model_dump(),
+        )
+
+router = APIRouter(
+    prefix="/api/v1/configs",
+    tags=["configurations"],
+)
+
+
+@router.post(
+    "",
+    response_model=CustomerConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create customer configuration",
+    description="""Create a new customer configuration.""",
+    responses={
+        201: {"description": "Configuration created successfully"},
+        400: {"model": ValidationErrorResponse, "description": "Validation error"},
+        409: {"description": "Configuration already exists"},
+    },
+)
+async def create_config(
+    request: CustomerConfigInput,
+    current_user: UserResponse = Depends(get_current_user),
+) -> Union[CustomerConfigResponse, JSONResponse]:
+    """Create a new customer configuration."""
+
+    # One config per user
+    existing_configs = config_storage.list_by_user(current_user.id)
+    if existing_configs:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ApiErrorResponse(
+                code=ErrorCode.QUOTA_EXCEEDED,
+                message="You already have a deployment configuration. "
+                "Edit your existing configuration or delete it first from Settings.",
+            ).model_dump(),
+        )
+
+    if config_storage.exists(current_user.id, request.customer_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Configuration for customer '{request.customer_id}' already exists. "
+            "Use PUT to update.",
+        )
+
+    try:
+        resolved = resolve_customer_config(request)
+
+        validate_config(request, resolved)
+
+        config_storage.save(current_user.id, request.customer_id, resolved)
+
+        db.audit_log(
+            "config_created",
+            request.customer_id,
+            user_id=current_user.id,
+            actor=current_user.email,
+        )
+
+        return CustomerConfigResponse.from_resolved(resolved)
+
+    except ConfigValidationError as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=e.to_response().model_dump(),
+        )
+
+
+@router.get(
+    "",
+    response_model=CustomerConfigListResponse,
+    summary="List customer configurations",
+    description="Retrieve configurations belonging to the current user.",
+)
+async def list_configs(
+    current_user: UserResponse = Depends(get_current_user),
+) -> CustomerConfigListResponse:
+    """List customer configurations for the current user."""
+    configs = config_storage.list_by_user(current_user.id)
+    return CustomerConfigListResponse(
+        configs=[CustomerConfigResponse.from_resolved(c) for c in configs],
+        total=len(configs),
+    )
+
+
+@router.get(
+    "/{customer_id}",
+    response_model=CustomerConfigResponse,
+    summary="Get customer configuration",
+    description="Retrieve a specific customer's fully-resolved configuration.",
+)
+async def get_config(
+    customer_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+) -> CustomerConfigResponse:
+    """Get a customer configuration by ID."""
+    config = config_storage.get(current_user.id, customer_id)
+    if config is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Configuration for customer '{customer_id}' not found",
+        )
+
+    return CustomerConfigResponse.from_resolved(config)
+
+
+@router.put(
+    "/{customer_id}",
+    response_model=CustomerConfigResponse,
+    summary="Update customer configuration",
+    description="""Update an existing customer's configuration.""",
+    responses={
+        200: {"description": "Configuration updated successfully"},
+        400: {"model": ValidationErrorResponse, "description": "Validation error"},
+        404: {"description": "Configuration not found"},
+    },
+)
+async def update_config(
+    customer_id: str,
+    request: CustomerConfigInput,
+    current_user: UserResponse = Depends(get_current_user),
+) -> Union[CustomerConfigResponse, JSONResponse]:
+    """Update a customer configuration."""
+
+    existing_config = config_storage.get(current_user.id, customer_id)
+    if existing_config is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Configuration for customer '{customer_id}' not found",
+        )
+
+    # Block edits while deployment is active
+    _check_config_not_locked(current_user.id, customer_id, request.environment)
+
+    if request.customer_id != customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Customer ID in request body '{request.customer_id}' does not match URL '{customer_id}'",
+        )
+
+    try:
+        resolved = resolve_customer_config(request)
+
+        resolved.created_at = existing_config.created_at
+
+        # Preserve secrets when client sends the redacted placeholder "***"
+        _REDACTED = "***"
+        if resolved.mongodb_config and existing_config.mongodb_config:
+            if resolved.mongodb_config.atlas_client_secret == _REDACTED:
+                resolved.mongodb_config.atlas_client_secret = existing_config.mongodb_config.atlas_client_secret
+            if resolved.mongodb_config.db_password == _REDACTED:
+                resolved.mongodb_config.db_password = existing_config.mongodb_config.db_password
+            if resolved.mongodb_config.connection_uri == _REDACTED:
+                resolved.mongodb_config.connection_uri = existing_config.mongodb_config.connection_uri
+        if resolved.kafka_config and existing_config.kafka_config:
+            if resolved.kafka_config.password == _REDACTED:
+                resolved.kafka_config.password = existing_config.kafka_config.password
+        if (
+            resolved.addons
+            and resolved.addons.argocd.repository
+            and existing_config.addons
+            and existing_config.addons.argocd.repository
+            and resolved.addons.argocd.repository.password == _REDACTED
+        ):
+            resolved.addons.argocd.repository.password = existing_config.addons.argocd.repository.password
+
+        validate_config(request, resolved)
+
+        config_storage.save(current_user.id, customer_id, resolved)
+
+        db.audit_log(
+            "config_updated",
+            customer_id,
+            user_id=current_user.id,
+            actor=current_user.email,
+        )
+
+        return CustomerConfigResponse.from_resolved(resolved)
+
+    except ConfigValidationError as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=e.to_response().model_dump(),
+        )
+
+
+@router.delete(
+    "/{customer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete customer configuration",
+    description="Delete a customer's configuration. This does not destroy any "
+    "deployed infrastructure.",
+)
+async def delete_config(
+    customer_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+) -> None:
+    """Delete a customer configuration.
+
+    Blocked while any deployment for this customer is in a non-terminal state.
+    """
+    # Check ALL environments — we check the common default plus any existing deployments
+    deployments = db.get_deployments_for_user(current_user.id)
+    for dep in deployments:
+        if dep["customer_id"] == customer_id and dep["status"] in (
+            DeploymentStatus.PENDING,
+            DeploymentStatus.IN_PROGRESS,
+            DeploymentStatus.DESTROYING,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=ApiErrorResponse(
+                    code=ErrorCode.CONFIG_LOCKED,
+                    message=f"Cannot delete configuration for '{customer_id}' while "
+                    f"deployment '{dep['stack_name']}' is {dep['status'].value}. "
+                    "Wait for it to complete or be destroyed first.",
+                ).model_dump(),
+            )
+
+    if not config_storage.delete(current_user.id, customer_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Configuration for customer '{customer_id}' not found",
+        )
+
+    db.audit_log(
+        "config_deleted",
+        customer_id,
+        user_id=current_user.id,
+        actor=current_user.email,
+    )
+
+
+@router.post(
+    "/validate",
+    response_model=CustomerConfigResponse,
+    summary="Validate configuration without saving",
+    description="""Validate a configuration and return the resolved result without saving.""",
+    responses={
+        200: {"description": "Configuration is valid"},
+        400: {"model": ValidationErrorResponse, "description": "Validation error"},
+    },
+)
+async def validate_config_endpoint(
+    request: CustomerConfigInput,
+    current_user: UserResponse = Depends(get_current_user),
+) -> Union[CustomerConfigResponse, JSONResponse]:
+    """Validate a configuration without saving it."""
+    try:
+        resolved = resolve_customer_config(request)
+
+        validate_config(request, resolved)
+
+        return CustomerConfigResponse.from_resolved(resolved)
+
+    except ConfigValidationError as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=e.to_response().model_dump(),
+        )

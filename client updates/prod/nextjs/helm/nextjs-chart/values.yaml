@@ -1,0 +1,50 @@
+namespace: nextjs
+
+image:
+  repository: 746038690600.dkr.ecr.us-east-1.amazonaws.com/cortex-dashboard
+  tag: latest
+  pullPolicy: Always
+
+replicas: 2
+
+resources:
+  requests:
+    memory: '256Mi'
+    cpu: '100m'
+  limits:
+    memory: '512Mi'
+    cpu: '500m'
+
+nodeSelector:
+  role: general
+
+serviceAccount:
+  name: nextjs
+
+ingress:
+  enabled: true
+  className: nginx-inc
+  hostname: nextjs.usecortex.opengig.work
+  tls:
+    enabled: true
+    secretName: nextjs-tls
+    issuerName: letsencrypt-prod
+  annotations:
+    nginx.org/proxy-read-timeout: '60s'
+    nginx.org/proxy-send-timeout: '60s'
+    nginx.org/proxy-connect-timeout: '10s'
+
+hpa:
+  enabled: false
+
+pdb:
+  enabled: false
+
+monitoring:
+  enabled: false
+
+externalSecret:
+  enabled: true
+  storeName: aws-secrets-manager
+  secretPath: /byoc/cortex1/nextjs
+  refreshInterval: 5m
