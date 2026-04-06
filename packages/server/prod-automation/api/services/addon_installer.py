@@ -629,6 +629,163 @@ CH_NP_EOF
 echo "==> ClickHouse NodePool created!"
 
 # =============================================================================
+# ADDITIONAL KARPENTER NODEPOOLS
+# =============================================================================
+echo "==> Creating additional Karpenter NodePools..."
+cat <<'EXTRA_NP_EOF' | kubectl apply -f -
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: memory-db-large-scalable
+spec:
+  template:
+    metadata:
+      labels:
+        role: memory-db-large-scalable
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["r6i.large", "r6i.xlarge", "r6i.2xlarge", "r6a.large", "r6a.xlarge", "r6a.2xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      taints:
+        - key: workload
+          value: database-large-scalable
+          effect: NoSchedule
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30m
+    budgets:
+      - nodes: "0"
+        reasons:
+          - Drifted
+          - Underutilized
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: milvus-attu
+spec:
+  template:
+    metadata:
+      labels:
+        role: milvus-attu
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.small", "t3.medium", "t3a.small", "t3a.medium"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+      taints:
+        - key: workload
+          value: milvus-attu
+          effect: NoSchedule
+  limits:
+    cpu: 8
+    memory: 16Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: cortex-app-pool
+spec:
+  template:
+    metadata:
+      labels:
+        role: cortex-app
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.medium", "t3.large", "t3a.medium", "t3a.large", "m6i.large", "m6a.large"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: cortex-ingestion-pool
+spec:
+  template:
+    metadata:
+      labels:
+        role: cortex-ingestion
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.medium", "t3.large", "t3a.medium", "t3a.large", "m6i.large", "m6a.large"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: monitoring-pool
+spec:
+  template:
+    metadata:
+      labels:
+        role: monitoring
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.medium", "t3.large", "t3a.medium", "t3a.large"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+  limits:
+    cpu: 50
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
+EXTRA_NP_EOF
+echo "==> Additional NodePools created!"
+
+# =============================================================================
 # ALTINITY CLICKHOUSE OPERATOR
 # =============================================================================
 echo "==> Installing Altinity ClickHouse Operator..."
