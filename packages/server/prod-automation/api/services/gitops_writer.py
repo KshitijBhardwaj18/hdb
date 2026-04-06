@@ -496,6 +496,7 @@ spec:
           prune: true
           selfHeal: true
         syncOptions:
+          - CreateNamespace=true
           - ServerSideApply=true
           - RespectIgnoreDifferences=true
       ignoreDifferences:
