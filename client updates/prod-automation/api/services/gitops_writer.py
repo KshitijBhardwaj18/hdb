@@ -91,6 +91,10 @@ config:
   USERS_TO_SIGN_UP_TABLE_NAME: "{users_to_sign_up_table}"
   TOKEN_BUCKET_TABLE_NAME: "{token_bucket_table}"
   CORTEX_API_KEYS_V2_TABLE_NAME: "{api_keys_v2_table}"
+  USE_MILVUS_K8S_URLS: "false"
+  USE_FALKORDB_K8S_URLS: "false"
+  ON_PREM_DEPLOYMENTS: "true"
+  DEPLOYMENT_DOMAIN: "{self.domain}"
 
 ingress:
   hostname: "cortex-app.hydradb.{self.domain}"
@@ -133,6 +137,10 @@ config:
   USER_INDEXED_DATA_TABLE: "{user_indexed_data_table}"
   TOKEN_BUCKET_TABLE_NAME: "{token_bucket_table}"
   CORTEX_API_KEYS_V2_TABLE_NAME: "{api_keys_v2_table}"
+  USE_MILVUS_K8S_URLS: "false"
+  USE_FALKORDB_K8S_URLS: "false"
+  ON_PREM_DEPLOYMENTS: "true"
+  DEPLOYMENT_DOMAIN: "{self.domain}"
 
 ingress:
   hostname: "cortex-ingestion.hydradb.{self.domain}"
