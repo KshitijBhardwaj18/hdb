@@ -133,7 +133,7 @@ milvus:
       type: woodpecker
 ingress:
   className: nginx-inc
-  domain: milvusdb.usecortex.ai
+  domain: milvus.hydradb.hydradb.com
   tlsSecretName: ''
   grpc:
     enabled: true
@@ -177,21 +177,7 @@ attu:
       cpu: 500m
       memory: 512Mi
 certificate:
-  create: true
-  issuerRef:
-    name: letsencrypt-dns01-milvus
-    kind: ClusterIssuer
-  duration: 2160h
-  renewBefore: 360h
-clusterIssuer:
   create: false
-  name: letsencrypt-dns01-milvus
-  email: cloud@usecortex.ai
-  server: https://acme-v02.api.letsencrypt.org/directory
-  privateKeySecretRef: letsencrypt-dns01-milvus-key
-  cloudflare:
-    apiTokenSecretName: cloudflare-api-token-milvus
-    apiTokenKey: api-token
 monitoring:
   enabled: true
   releaseLabel: monitoring

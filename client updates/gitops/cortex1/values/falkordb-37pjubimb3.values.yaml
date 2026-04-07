@@ -1,7 +1,7 @@
 cluster:
   enabled: true
 organization: cortex1
-tenantId: abkoyyhrdl
+tenantId: 37pjubimb3
 namespace: falkordb-cortex1
 clusterName: falkordb
 auth:
