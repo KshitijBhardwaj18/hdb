@@ -309,47 +309,17 @@ class EksIamRoles(pulumi.ComponentResource):
                             },
                         },
                         {
-                            "Sid": "AllowScopedInstanceProfileCreationActions",
-                            "Effect": "Allow",
-                            "Action": "iam:CreateInstanceProfile",
-                            "Resource": "*",
-                            "Condition": {
-                                "StringEquals": {
-                                    f"aws:RequestTag/karpenter.sh/discovery": discovery_tag
-                                }
-                            },
-                        },
-                        {
-                            "Sid": "AllowScopedInstanceProfileTagActions",
-                            "Effect": "Allow",
-                            "Action": "iam:TagInstanceProfile",
-                            "Resource": "*",
-                            "Condition": {
-                                "StringEquals": {
-                                    f"aws:ResourceTag/karpenter.sh/discovery": discovery_tag,
-                                    f"aws:RequestTag/karpenter.sh/discovery": discovery_tag,
-                                }
-                            },
-                        },
-                        {
-                            "Sid": "AllowScopedInstanceProfileActions",
+                            "Sid": "AllowInstanceProfileActions",
                             "Effect": "Allow",
                             "Action": [
+                                "iam:CreateInstanceProfile",
+                                "iam:DeleteInstanceProfile",
+                                "iam:GetInstanceProfile",
+                                "iam:ListInstanceProfiles",
                                 "iam:AddRoleToInstanceProfile",
                                 "iam:RemoveRoleFromInstanceProfile",
-                                "iam:DeleteInstanceProfile",
+                                "iam:TagInstanceProfile",
                             ],
-                            "Resource": "*",
-                            "Condition": {
-                                "StringEquals": {
-                                    f"aws:ResourceTag/karpenter.sh/discovery": discovery_tag
-                                }
-                            },
-                        },
-                        {
-                            "Sid": "AllowInstanceProfileReadActions",
-                            "Effect": "Allow",
-                            "Action": "iam:GetInstanceProfile",
                             "Resource": "*",
                         },
                         {

@@ -299,7 +299,7 @@ ingress:
             f"{base_path}/monitoring-values.yaml": monitoring_values,
             f"{base_path}/falkordb-tenant-1-values.yaml": falkordb_values,
             f"{base_path}/milvus-values.yaml": milvus_values,
-            f"{base_path}/falkordb-dashboard-values.yaml": falkordb_dashboard_values,
+            f"{base_path}/falkordbdashboard-values.yaml": falkordb_dashboard_values,
         }
 
     def _application_header(self, name: str, wave: int) -> str:
@@ -562,7 +562,7 @@ spec:
       helm:
         releaseName: falkordb-dashboard
         valueFiles:
-          - $values/gitops/{self.customer_id}/values/falkordb-dashboard-values.yaml
+          - $values/gitops/{self.customer_id}/values/falkordbdashboard-values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: falkordb-dashboard

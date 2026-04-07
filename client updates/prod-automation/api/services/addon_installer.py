@@ -247,6 +247,9 @@ spec:
       rm -rf /var/lib/containerd
       ln -s "$MOUNT/containerd" /var/lib/containerd
     fi
+  tags:
+    karpenter.sh/discovery: "{cluster_name}"
+    Name: "{cluster_name}-karpenter-node"
 ---
 # falkordb-pool EC2NodeClass
 apiVersion: karpenter.k8s.aws/v1
@@ -285,6 +288,9 @@ spec:
     echo 1 > /proc/sys/vm/overcommit_memory
     echo 65535 > /proc/sys/net/core/somaxconn
     echo 65535 > /proc/sys/net/ipv4/tcp_max_syn_backlog
+  tags:
+    karpenter.sh/discovery: "{cluster_name}"
+    Name: "{cluster_name}-karpenter-node"
 ---
 # general-compute EC2NodeClass
 apiVersion: karpenter.k8s.aws/v1
@@ -315,6 +321,9 @@ spec:
         throughput: 125
         deleteOnTermination: true
         encrypted: true
+  tags:
+    karpenter.sh/discovery: "{cluster_name}"
+    Name: "{cluster_name}-karpenter-node"
 ---
 # milvus-attu EC2NodeClass
 apiVersion: karpenter.k8s.aws/v1
@@ -340,6 +349,9 @@ spec:
         throughput: 125
         deleteOnTermination: true
         encrypted: true
+  tags:
+    karpenter.sh/discovery: "{cluster_name}"
+    Name: "{cluster_name}-karpenter-node"
 ---
 # cortex-app EC2NodeClass
 apiVersion: karpenter.k8s.aws/v1
@@ -364,6 +376,9 @@ spec:
         iops: 3000
         throughput: 125
         deleteOnTermination: true
+  tags:
+    karpenter.sh/discovery: "{cluster_name}"
+    Name: "{cluster_name}-karpenter-node"
 ---
 # cortex-ingestion EC2NodeClass
 apiVersion: karpenter.k8s.aws/v1
@@ -388,6 +403,9 @@ spec:
         iops: 3000
         throughput: 125
         deleteOnTermination: true
+  tags:
+    karpenter.sh/discovery: "{cluster_name}"
+    Name: "{cluster_name}-karpenter-node"
 ---
 # monitoring EC2NodeClass
 apiVersion: karpenter.k8s.aws/v1
@@ -412,6 +430,9 @@ spec:
         iops: 3000
         throughput: 125
         deleteOnTermination: true
+  tags:
+    karpenter.sh/discovery: "{cluster_name}"
+    Name: "{cluster_name}-karpenter-node"
 EC2NODECLASS_EOF
 
 echo "==> Creating NodePool..."
