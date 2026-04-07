@@ -243,21 +243,21 @@ storageClass:
   name: milvus-storage
 
 nodeSelector:
-  role: milvus-general
+  role: memory-db-large-scalable
 
 tolerations:
   - key: workload
     operator: Equal
-    value: milvus-general
+    value: database-large-scalable
     effect: NoSchedule
 
 queryNodeSelector:
-  role: milvus-compute-nvme
+  role: memory-db-large-scalable
 
 queryNodeTolerations:
   - key: workload
     operator: Equal
-    value: milvus-compute-nvme
+    value: database-large-scalable
     effect: NoSchedule
 
 milvus:
