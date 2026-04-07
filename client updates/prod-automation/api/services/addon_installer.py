@@ -183,6 +183,235 @@ spec:
   tags:
     karpenter.sh/discovery: "{cluster_name}"
     Name: "{cluster_name}-karpenter-node"
+---
+# compute-nvme EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: compute-nvme
+spec:
+  role: "{node_role_name}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 50Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+        encrypted: true
+  userData: |
+    #!/bin/bash
+    set -e
+    NVME="/dev/nvme1n1"
+    MOUNT="/mnt/data"
+    for i in $(seq 1 30); do
+      [ -b "$NVME" ] && break
+      sleep 2
+    done
+    if [ ! -b "$NVME" ]; then
+      echo "NVMe device not found, skipping mount"
+      exit 0
+    fi
+    if ! blkid "$NVME" | grep -q xfs; then
+      mkfs.xfs -f "$NVME"
+    fi
+    mkdir -p "$MOUNT"
+    mount -o noatime,nodiratime "$NVME" "$MOUNT"
+    echo "$NVME $MOUNT xfs defaults,noatime,nodiratime 0 2" >> /etc/fstab
+    echo 10485760 > /proc/sys/fs/aio-max-nr
+    echo 4096 > /proc/sys/vm/nr_hugepages
+    echo 0 > /proc/sys/vm/overcommit_memory
+    echo none > /sys/block/nvme1n1/queue/scheduler 2>/dev/null || true
+    mkdir -p "$MOUNT/kubelet" "$MOUNT/containerd"
+    if [ -d /var/lib/kubelet ] && [ ! -L /var/lib/kubelet ]; then
+      cp -a /var/lib/kubelet/. "$MOUNT/kubelet/"
+      rm -rf /var/lib/kubelet
+      ln -s "$MOUNT/kubelet" /var/lib/kubelet
+    fi
+    if [ -d /var/lib/containerd ] && [ ! -L /var/lib/containerd ]; then
+      cp -a /var/lib/containerd/. "$MOUNT/containerd/"
+      rm -rf /var/lib/containerd
+      ln -s "$MOUNT/containerd" /var/lib/containerd
+    fi
+---
+# falkordb-pool EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: falkordb-pool
+spec:
+  role: "{node_role_name}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 50Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+        encrypted: true
+  userData: |
+    #!/bin/bash
+    set -e
+    echo never > /sys/kernel/mm/transparent_hugepage/enabled
+    echo never > /sys/kernel/mm/transparent_hugepage/defrag
+    echo 1 > /proc/sys/vm/overcommit_memory
+    echo 65535 > /proc/sys/net/core/somaxconn
+    echo 65535 > /proc/sys/net/ipv4/tcp_max_syn_backlog
+---
+# general-compute EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: general-compute
+spec:
+  role: "{node_role_name}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 30Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+        encrypted: true
+---
+# milvus-attu EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: milvus-attu
+spec:
+  role: "{node_role_name}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 20Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+        encrypted: true
+---
+# cortex-app EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: cortex-app
+spec:
+  role: "{node_role_name}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+---
+# cortex-ingestion EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: cortex-ingestion
+spec:
+  role: "{node_role_name}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
+---
+# monitoring EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: monitoring
+spec:
+  role: "{node_role_name}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "{cluster_name}"
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        deleteOnTermination: true
 EC2NODECLASS_EOF
 
 echo "==> Creating NodePool..."
@@ -338,15 +567,18 @@ spec:
       requirements:
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["t3.medium", "t3.large", "t3.xlarge", "t3a.medium", "t3a.large", "m5.large", "m5.xlarge", "m5a.large", "m6i.medium", "m6i.large", "m6i.xlarge", "m6a.medium", "m6a.large", "m6a.xlarge", "m7i.medium", "m7i.large"]
+          values: ["m6i.medium", "m6i.large", "m6i.xlarge", "m6a.medium", "m6a.large", "m6a.xlarge", "m7i.medium", "m7i.large"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
   limits:
     cpu: 100
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 5m
+    consolidateAfter: 50m
 ---
 apiVersion: karpenter.sh/v1
 kind: NodePool
@@ -361,64 +593,38 @@ spec:
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
-        name: default
+        name: falkordb-pool
       requirements:
-        - key: node.kubernetes.io/instance-type
+        - key: kubernetes.io/arch
           operator: In
-          values: ["r6i.large", "r6i.xlarge", "r6i.2xlarge", "r6a.large", "r6a.xlarge", "r6a.2xlarge", "r8i.xlarge"]
+          values: ["amd64"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["r8i.xlarge", "r8i.2xlarge"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
       taints:
         - key: workload
           value: falkordb
           effect: NoSchedule
   limits:
-    cpu: 100
+    cpu: "32"
+    memory: 256Gi
   disruption:
     consolidationPolicy: WhenEmpty
-    consolidateAfter: 30m
+    consolidateAfter: 60m
     budgets:
-      - nodes: "0"
-        reasons:
-          - Drifted
-          - Underutilized
+      - reasons: [Drifted, Underutilized]
+        nodes: "0"
 ---
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
-  name: milvus-general
-spec:
-  template:
-    metadata:
-      labels:
-        role: milvus-general
-    spec:
-      nodeClassRef:
-        group: karpenter.k8s.aws
-        kind: EC2NodeClass
-        name: default
-      requirements:
-        - key: node.kubernetes.io/instance-type
-          operator: In
-          values: ["m6i.large", "m6i.xlarge", "m6a.large", "m6a.xlarge"]
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["on-demand"]
-      taints:
-        - key: workload
-          value: milvus-general
-          effect: NoSchedule
-  limits:
-    cpu: 100
-  disruption:
-    consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 30m
----
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: milvus-compute-nvme
+  name: compute-nvme
 spec:
   template:
     metadata:
@@ -428,28 +634,65 @@ spec:
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
-        name: default
+        name: compute-nvme
       requirements:
-        - key: node.kubernetes.io/instance-type
+        - key: kubernetes.io/arch
           operator: In
-          values: ["r6i.xlarge", "r6i.2xlarge", "r6a.xlarge", "r6a.2xlarge", "r8id.xlarge"]
+          values: ["amd64"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["r8id.xlarge", "r8id.2xlarge", "r6id.xlarge", "r6id.2xlarge"]
       taints:
         - key: workload
           value: milvus-compute-nvme
           effect: NoSchedule
   limits:
-    cpu: 100
+    cpu: "64"
+    memory: 512Gi
   disruption:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 30m
     budgets:
-      - nodes: "0"
-        reasons:
-          - Drifted
-          - Underutilized
+      - reasons: [Drifted, Underutilized]
+        nodes: "0"
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: general-compute
+spec:
+  template:
+    metadata:
+      labels:
+        role: milvus-general
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: general-compute
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["m6i.large", "m6i.xlarge", "m6i.2xlarge"]
+      taints:
+        - key: workload
+          value: milvus-general
+          effect: NoSchedule
+  limits:
+    cpu: "128"
+    memory: 512Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
 NODEPOOL_EOF
 
 echo "==> Verifying NodePools..."
@@ -611,6 +854,9 @@ spec:
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
       taints:
         - key: workload
           value: clickhouse
@@ -627,6 +873,178 @@ spec:
           - Underutilized
 CH_NP_EOF
 echo "==> ClickHouse NodePool created!"
+
+# =============================================================================
+# ADDITIONAL KARPENTER NODEPOOLS
+# =============================================================================
+echo "==> Creating additional Karpenter NodePools..."
+cat <<'EXTRA_NP_EOF' | kubectl apply -f -
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: memory-pool-xlarge
+spec:
+  template:
+    metadata:
+      labels:
+        role: memory-db-large-scalable
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["r6i.large", "r6i.xlarge", "r6i.2xlarge", "r6a.large", "r6a.xlarge", "r6a.2xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+      taints:
+        - key: workload
+          value: database-large-scalable
+          effect: NoSchedule
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30m
+    budgets:
+      - nodes: "0"
+        reasons:
+          - Drifted
+          - Underutilized
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: milvus-attu
+spec:
+  template:
+    metadata:
+      labels:
+        role: milvus-attu
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: milvus-attu
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t4g.small", "t4g.medium", "t3.small", "t3.medium"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+      taints:
+        - key: workload
+          value: milvus-attu
+          effect: NoSchedule
+  limits:
+    cpu: "8"
+    memory: 16Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: cortex-app
+spec:
+  template:
+    metadata:
+      labels:
+        role: cortex-app
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: cortex-app
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["m6i.medium", "m6i.large", "m7i.medium", "m7i.large", "m6a.medium", "m6a.large"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 50m
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: cortex-ingestion
+spec:
+  template:
+    metadata:
+      labels:
+        role: cortex-ingestion
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: cortex-ingestion
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["g4dn.xlarge", "g4dn.large", "g4dn2.xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+  limits:
+    cpu: 100
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 50m
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: monitoring-pool
+spec:
+  template:
+    metadata:
+      labels:
+        role: monitoring
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: monitoring
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["m6i.xlarge", "m6i.2xlarge", "m6a.xlarge", "m6a.2xlarge", "m7i.xlarge", "m7i.2xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1f"]
+  limits:
+    cpu: 50
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 1h
+EXTRA_NP_EOF
+echo "==> Additional NodePools created!"
 
 # =============================================================================
 # ALTINITY CLICKHOUSE OPERATOR
@@ -690,6 +1108,20 @@ else
     helm install metrics-server metrics-server/metrics-server --namespace kube-system --set nodeSelector.role=general --wait --timeout 5m
 fi
 echo "==> metrics-server installed!"
+
+# =============================================================================
+# STAKATER RELOADER
+# =============================================================================
+echo "==> Installing Stakater Reloader..."
+helm repo add stakater https://stakater.github.io/stakater-charts || true
+helm repo update stakater
+if helm status reloader -n kube-system &>/dev/null; then
+    echo "==> Reloader already installed, upgrading..."
+    helm upgrade reloader stakater/reloader --namespace kube-system --set nodeSelector.role=general --wait --timeout 5m
+else
+    helm install reloader stakater/reloader --namespace kube-system --set nodeSelector.role=general --wait --timeout 5m
+fi
+echo "==> Reloader installed!"
 
 # =============================================================================
 # CERT-MANAGER

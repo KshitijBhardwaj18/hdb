@@ -110,7 +110,6 @@ aws.iam.RolePolicyAttachment(
 # Milvus object storage bucket (replaces MinIO)
 milvus_bucket = aws.s3.BucketV2(
     f"{config.customer_id}-milvus-bucket",
-    bucket_prefix=f"hydradb-milvus-store-{config.customer_id}-",
     opts=pulumi.ResourceOptions(provider=aws_provider),
 )
 
@@ -161,7 +160,7 @@ cortex_users_table = aws.dynamodb.Table(
 # PK=api_key_id, SK=user_email, GSI: user_email(PK=user_email, SK=api_key_id)
 api_keys_table = aws.dynamodb.Table(
     "cortex-api-keys",
-    name="cortex-api-keys",
+    name="cortex_user_api_keys_prod",
     billing_mode="PAY_PER_REQUEST",
     hash_key="api_key_id",
     range_key="user_email",
@@ -185,7 +184,7 @@ api_keys_table = aws.dynamodb.Table(
 # PK=user_id
 user_metadata_table = aws.dynamodb.Table(
     "user-metadata",
-    name="user-metadata",
+    name="user_metadata_prod",
     billing_mode="PAY_PER_REQUEST",
     hash_key="user_id",
     attributes=[
@@ -199,7 +198,7 @@ user_metadata_table = aws.dynamodb.Table(
 # PK=composite_pk, GSI: file_id-index(PK=file_id)
 user_indexed_data_table = aws.dynamodb.Table(
     "user-indexed-data-status",
-    name="user-indexed-data-status",
+    name="user_indexed_data_status",
     billing_mode="PAY_PER_REQUEST",
     hash_key="composite_pk",
     attributes=[
@@ -221,7 +220,7 @@ user_indexed_data_table = aws.dynamodb.Table(
 # PK=email, SK=organization, 4 GSIs
 user_details_table = aws.dynamodb.Table(
     "user-details",
-    name="user-details",
+    name="user_details",
     billing_mode="PAY_PER_REQUEST",
     hash_key="email",
     range_key="organization",
@@ -262,7 +261,7 @@ user_details_table = aws.dynamodb.Table(
 
 users_to_sign_up_table = aws.dynamodb.Table(
     "users-to-sign-up",
-    name="users-to-sign-up",
+    name="users_to_sign_up_prod",
     billing_mode="PAY_PER_REQUEST",
     hash_key="email",
     attributes=[
@@ -275,7 +274,7 @@ users_to_sign_up_table = aws.dynamodb.Table(
 
 tenant_mapping_table = aws.dynamodb.Table(
     "tenant-id-mapping",
-    name="tenant-id-mapping",
+    name="tenant-id-mapping-prod",
     billing_mode="PAY_PER_REQUEST",
     hash_key="Organisation_tenant_id",
     range_key="Organisation",
@@ -298,7 +297,7 @@ tenant_mapping_table = aws.dynamodb.Table(
 
 token_bucket_table = aws.dynamodb.Table(
     "token-bucket-rate-limiter",
-    name="token-bucket-rate-limiter",
+    name="token_bucket_rate_limiter",
     billing_mode="PAY_PER_REQUEST",
     hash_key="pk",
     attributes=[
@@ -312,9 +311,22 @@ token_bucket_table = aws.dynamodb.Table(
     opts=pulumi.ResourceOptions(provider=aws_provider),
 )
 
+api_keys_v2_table = aws.dynamodb.Table(
+    "cortex-api-keys-v2",
+    name="cortex_api_keys_v2_prod",
+    billing_mode="PAY_PER_REQUEST",
+    hash_key="api_key_id",
+    attributes=[
+        aws.dynamodb.TableAttributeArgs(name="api_key_id", type="S"),
+    ],
+    tags={**_ddb_tags, "Name": "cortex_api_keys_v2_prod"},
+    opts=pulumi.ResourceOptions(provider=aws_provider),
+)
+
 _all_table_arns = [
     cortex_users_table.arn,
     api_keys_table.arn,
+    api_keys_v2_table.arn,
     user_metadata_table.arn,
     user_indexed_data_table.arn,
     user_details_table.arn,
@@ -370,7 +382,7 @@ if config.mongodb_config and config.mongodb_config.mode in ("atlas", "atlas-peer
 # IAM - Cortex App Role (IRSA) with fixed name for predictable ARN
 def _build_cortex_app_policy(args: list) -> str:
     """Build the cortex-app IAM policy with conditional Kafka permissions."""
-    table_arns = args[0:8]
+    table_arns = args[0:9]
 
     statements = [
         {
@@ -414,8 +426,8 @@ def _build_cortex_app_policy(args: list) -> str:
         kafka_resource = "*"
         if config.kafka_config.cluster_arn:
             kafka_resource = config.kafka_config.cluster_arn
-        elif len(args) > 8 and args[8]:
-            kafka_resource = args[8]
+        elif len(args) > 9 and args[9]:
+            kafka_resource = args[9]
 
         # MSK Serverless IAM auth requires separate resource ARNs for
         # cluster connect, topic operations, and consumer group operations.
@@ -540,6 +552,7 @@ def _build_cortex_app_secrets(args: dict) -> str:
         "USER_DETAILS_TABLE_NAME": args["user_details_table"],
         "USERS_TO_SIGN_UP_TABLE_NAME": args["users_to_sign_up_table"],
         "TOKEN_BUCKET_TABLE_NAME": args["token_bucket_table"],
+        "CORTEX_API_KEYS_V2_TABLE_NAME": args["api_keys_v2_table"],
     }
 
     if config.kafka_config:
@@ -581,6 +594,7 @@ _app_secret_map: dict[str, pulumi.Output] = {
     "user_details_table": user_details_table.name,
     "users_to_sign_up_table": users_to_sign_up_table.name,
     "token_bucket_table": token_bucket_table.name,
+    "api_keys_v2_table": api_keys_v2_table.name,
     "milvus_bucket": milvus_bucket.bucket,
 }
 
@@ -675,6 +689,7 @@ def _build_cortex_ingestion_secrets(args: dict) -> str:
         "CORTEX_APP_ROLE_ARN": args["cortex_app_role_arn"],
         "USER_INDEXED_DATA_TABLE": args["user_indexed_data_table"],
         "TOKEN_BUCKET_TABLE_NAME": args["token_bucket_table"],
+        "CORTEX_API_KEYS_V2_TABLE_NAME": args["api_keys_v2_table"],
     }
 
     if config.kafka_config:
@@ -711,6 +726,7 @@ _ingestion_secret_map: dict[str, pulumi.Output] = {
     "cortex_app_role_arn": cortex_app_role.arn,
     "user_indexed_data_table": user_indexed_data_table.name,
     "token_bucket_table": token_bucket_table.name,
+    "api_keys_v2_table": api_keys_v2_table.name,
 }
 
 if kafka_bootstrap_output:
@@ -819,6 +835,7 @@ pulumi.export("user_details_table_name", user_details_table.name)
 pulumi.export("users_to_sign_up_table_name", users_to_sign_up_table.name)
 pulumi.export("tenant_mapping_table_name", tenant_mapping_table.name)
 pulumi.export("token_bucket_table_name", token_bucket_table.name)
+pulumi.export("api_keys_v2_table_name", api_keys_v2_table.name)
 pulumi.export("cortex_app_role_arn", cortex_app_role.arn)
 pulumi.export("cortex_app_role_name", cortex_app_role.name)
 pulumi.export("argocd_tokens_secret_name", argocd_tokens_secret.name)
