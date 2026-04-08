@@ -550,9 +550,16 @@ spec:
 """
         )
 
-        falkordb_dashboard_app = (
-            self._application_header("falkordb-dashboard", 3)
-            + f"""  sources:
+        falkordb_dashboard_app = f"""apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: falkordb-dashboard
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  sources:
     - repoURL: {repo_url}
       targetRevision: {self.branch}
       ref: {values_ref}
@@ -573,16 +580,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-      - RespectIgnoreDifferences=true
-  ignoreDifferences:
-    - group: networking.k8s.io
-      kind: Ingress
-      jqPathExpressions:
-        - .metadata.annotations
-        - .spec.rules
-        - .spec.tls
 """
-        )
 
         clickhouse_app = (
             self._application_header("clickhouse", 2)
